@@ -365,6 +365,7 @@ def _normalize_fare(
 
     normalized = FareOption(
         cabin=CABIN_NAMES.get(cabin_code, cabin_code),
+        cabin_codes=list(dict.fromkeys(cabin_codes)),
         currency=currency,
         price_per_passenger=price_per_passenger,
         total_price=total_price,
