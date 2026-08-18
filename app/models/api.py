@@ -295,7 +295,7 @@ class QuoteRenderResponse(BaseModel):
 
 class FareRuleDatum(BaseModel):
     status: Literal["included", "with_fee", "not_allowed", "allowed", "unknown"]
-    source: Literal["brand_feature", "fare_flag", "baggage", "ticketing", "not_provided"]
+    source: Literal["brand_feature", "fare_flag", "baggage", "ticketing", "air_rules", "not_provided"]
     confidence: Literal["high", "medium", "unknown"]
     text: str
 
@@ -322,6 +322,12 @@ class FareRuleAuditResponse(BaseModel):
     selected_only: bool
     options: list[FareRuleOptionAudit]
     requires_external_rule_lookup: bool
+    external_rule_provider: Literal["air_rules"] = "air_rules"
+    external_rule_lookup_status: Literal[
+        "not_needed",
+        "pending_authentication",
+        "resolved",
+    ] = "not_needed"
 
 
 class QuoteWorkflowUpdate(BaseModel):

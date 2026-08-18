@@ -494,7 +494,18 @@ async function auditRules(){
       <div class="rule ${f.ticketing.confidence==="high"?"high":"unknown"}">Emisión: ${esc(f.ticketing.text)}</div></div>`);
     }));
     document.getElementById("previewTitle").textContent="Auditoría de reglas";
-    document.getElementById("previewBody").innerHTML=`<div class="status ${data.requires_external_rule_lookup?"warn":"ok"}">${data.requires_external_rule_lookup?"Faltan reglas externas para algunos conceptos.":"Reglas suficientes para los conceptos auditados."}</div><div class="fares">${rows.join("")}</div>`;
+    let ruleStatus="Reglas suficientes para los conceptos auditados.";
+    let ruleClass="ok";
+    if(data.external_rule_lookup_status==="pending_authentication"){
+      ruleClass="warn";
+      ruleStatus="Faltan reglas externas para algunos conceptos. Air Fare Rules está preparado, pendiente de autenticación SOAP de Sabre.";
+    }else if(data.external_rule_lookup_status==="resolved"){
+      ruleStatus="Reglas enriquecidas con Air Fare Rules de Sabre.";
+    }else if(data.requires_external_rule_lookup){
+      ruleClass="warn";
+      ruleStatus="Faltan reglas externas para algunos conceptos.";
+    }
+    document.getElementById("previewBody").innerHTML=`<div class="status ${ruleClass}">${esc(ruleStatus)}</div><div class="fares">${rows.join("")}</div>`;
     document.getElementById("previewSection").classList.remove("hidden");
   }catch(e){alert(e.message);}
 }
