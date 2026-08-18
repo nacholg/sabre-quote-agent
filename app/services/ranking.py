@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from enum import Enum
 
 from app.models.itinerary import ItineraryOption
+from app.services.normalizer import itinerary_signature
 
 
 class RankingMode(str, Enum):
@@ -12,6 +13,15 @@ class RankingMode(str, Enum):
     PRICE = "price"
     DURATION = "duration"
     STOPS = "stops"
+
+
+
+class CommercialLabel(str, Enum):
+    RECOMMENDED = "recommended"
+    LOWEST_PRICE = "lowest_price"
+    FASTEST = "fastest"
+    FEWEST_STOPS = "fewest_stops"
+    BEST_SCHEDULE = "best_schedule"
 
 
 @dataclass(frozen=True)
@@ -23,6 +33,7 @@ class RankedItinerary:
     duration_minutes: int
     ranking_currency: str
     ranking_price: Decimal
+    commercial_labels: tuple[CommercialLabel, ...] = ()
 
 
 def _journey_groups(option: ItineraryOption):
@@ -138,3 +149,189 @@ def rank_itineraries(
         )
         for index, row in enumerate(rows, start=1)
     ]
+
+
+
+def commercial_rank_itineraries(
+    ranked: list[RankedItinerary],
+    *,
+    time_distance_by_signature: dict[tuple, int] | None = None,
+    has_time_constraints: bool = False,
+) -> list[RankedItinerary]:
+    """
+    Commercial ranking for BALANCED mode.
+
+    Auditable heuristic:
+    - price remains the baseline as ratio to the cheapest option
+    - each stop adds 18%
+    - each hour above the fastest option adds 2.5%
+    - when temporal intent exists, schedule position can add up to 30%
+
+    Explicit PRICE / DURATION / STOPS modes are handled before this function
+    and are intentionally not changed here.
+    """
+    if not ranked:
+        return []
+
+    positive_prices = [
+        item.ranking_price
+        for item in ranked
+        if item.ranking_price > 0
+    ]
+    min_price = min(positive_prices) if positive_prices else Decimal("1")
+
+    positive_durations = [
+        item.duration_minutes
+        for item in ranked
+        if item.duration_minutes > 0
+    ]
+    min_duration = min(positive_durations) if positive_durations else 1
+
+    schedule_position: dict[tuple, int] = {}
+    if has_time_constraints and time_distance_by_signature:
+        ordered_signatures = sorted(
+            (
+                itinerary_signature(item.option)
+                for item in ranked
+            ),
+            key=lambda signature: (
+                time_distance_by_signature.get(signature, 10**12),
+                signature,
+            ),
+        )
+        schedule_position = {
+            signature: index
+            for index, signature in enumerate(ordered_signatures)
+        }
+
+    denominator = max(1, len(ranked) - 1)
+    rows: list[tuple[tuple, RankedItinerary, Decimal]] = []
+
+    for item in ranked:
+        price_ratio = (
+            item.ranking_price / min_price
+            if min_price
+            else Decimal("1")
+        )
+
+        duration_extra_hours = (
+            Decimal(
+                max(0, item.duration_minutes - min_duration)
+            )
+            / Decimal("60")
+        )
+
+        stop_penalty = (
+            Decimal(item.stops) * Decimal("0.18")
+        )
+        duration_penalty = (
+            duration_extra_hours * Decimal("0.025")
+        )
+
+        schedule_penalty = Decimal("0")
+        signature = itinerary_signature(item.option)
+
+        if schedule_position:
+            normalized_position = (
+                Decimal(schedule_position[signature])
+                / Decimal(denominator)
+            )
+            schedule_penalty = (
+                normalized_position * Decimal("0.30")
+            )
+
+        commercial_score = (
+            price_ratio
+            + stop_penalty
+            + duration_penalty
+            + schedule_penalty
+        )
+
+        sort_key = (
+            commercial_score,
+            item.stops,
+            item.ranking_price,
+            item.duration_minutes,
+        )
+
+        rows.append(
+            (
+                sort_key,
+                item,
+                commercial_score,
+            )
+        )
+
+    rows.sort(key=lambda row: row[0])
+
+    return [
+        replace(
+            item,
+            rank=index,
+            score=commercial_score,
+        )
+        for index, (_sort_key, item, commercial_score)
+        in enumerate(rows, start=1)
+    ]
+
+def assign_commercial_labels(
+    ranked: list[RankedItinerary],
+    *,
+    time_distance_by_signature: dict[tuple, int] | None = None,
+    has_time_constraints: bool = False,
+) -> list[RankedItinerary]:
+    if not ranked:
+        return []
+
+    min_price = min(item.ranking_price for item in ranked)
+    min_duration = min(item.duration_minutes for item in ranked)
+    min_stops = min(item.stops for item in ranked)
+
+    best_schedule_signature = None
+    if has_time_constraints and time_distance_by_signature:
+        best_schedule_item = min(
+            ranked,
+            key=lambda item: (
+                time_distance_by_signature.get(
+                    itinerary_signature(item.option),
+                    10**12,
+                ),
+                item.rank,
+            ),
+        )
+        best_schedule_signature = itinerary_signature(
+            best_schedule_item.option
+        )
+
+    labeled: list[RankedItinerary] = []
+
+    for index, item in enumerate(ranked):
+        labels: list[CommercialLabel] = []
+
+        if index == 0:
+            labels.append(CommercialLabel.RECOMMENDED)
+
+        if item.ranking_price == min_price:
+            labels.append(CommercialLabel.LOWEST_PRICE)
+
+        if item.duration_minutes == min_duration:
+            labels.append(CommercialLabel.FASTEST)
+
+        if item.stops == min_stops:
+            labels.append(CommercialLabel.FEWEST_STOPS)
+
+        if (
+            best_schedule_signature is not None
+            and itinerary_signature(item.option)
+            == best_schedule_signature
+        ):
+            labels.append(CommercialLabel.BEST_SCHEDULE)
+
+        labeled.append(
+            replace(
+                item,
+                commercial_labels=tuple(labels),
+            )
+        )
+
+    return labeled

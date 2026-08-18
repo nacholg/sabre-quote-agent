@@ -18,7 +18,7 @@ from app.models.quote_request import (
     TripType,
 )
 from app.services.pricing_rules import PricingCurrency
-from app.services.ranking import RankingMode
+from app.services.ranking import CommercialLabel, RankingMode
 
 
 class QuoteSearchAPIRequest(BaseModel):
@@ -182,6 +182,7 @@ class RankedOption(BaseModel):
     duration_minutes: int
     ranking_currency: str
     ranking_price: Decimal
+    commercial_labels: list[CommercialLabel] = Field(default_factory=list)
     itinerary: ItineraryOption
 
 
