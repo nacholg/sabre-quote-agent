@@ -137,7 +137,26 @@ let currentQuoteId = null;
 
 function esc(v){return String(v ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c]));}
 function money(v,c){if(v===null||v===undefined)return ""; return `${c} ${Number(v).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`;}
-function fmtDateTime(v){try{const d=new Date(v); return d.toLocaleString("es-AR",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit",hour12:false});}catch{return v;}}
+function fmtDateTime(v){
+  if(!v)return "";
+
+  // Flight datetimes are airport-local timestamps. Do NOT construct a
+  // JavaScript Date here: that would convert them to the browser timezone
+  // (e.g. Miami 08:15 -> Buenos Aires 10:15).
+  const m=String(v).match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/
+  );
+
+  if(!m)return String(v);
+
+  const months=[
+    "ene","feb","mar","abr","may","jun",
+    "jul","ago","sep","oct","nov","dic"
+  ];
+
+  const month=months[Number(m[2])-1] || m[2];
+  return `${m[3]}-${month}, ${m[4]}:${m[5]}`;
+}
 
 function fmtConstraintDate(v){
   if(!v)return "";
@@ -334,6 +353,14 @@ function renderQuote(q){
       ? tm.messages.map(esc).join("<br>")
       : "No hubo opciones que cumplieran exactamente el horario solicitado. Se muestran las alternativas más cercanas.";
     timeMatchEl.innerHTML=`<div class="status warn"><strong>Horarios: alternativas cercanas</strong><br>${messages}</div>`;
+    timeMatchEl.classList.remove("hidden");
+  }else if(tm.status==="preferred"){
+    const count=Number(tm.preferred_match_count||0);
+    if(count>0){
+      timeMatchEl.innerHTML=`<div class="status ok"><strong>Horario preferido:</strong> ${esc(count)} opción(es) están dentro de la ventana preferida. Se muestran primero las más cercanas.</div>`;
+    }else{
+      timeMatchEl.innerHTML=`<div class="status warn"><strong>Horario preferido:</strong> no hay opciones dentro de la ventana solicitada. Se muestran las alternativas más cercanas.</div>`;
+    }
     timeMatchEl.classList.remove("hidden");
   }else if(tm.status==="exact"){
     timeMatchEl.innerHTML=`<div class="status ok"><strong>Horarios solicitados:</strong> ${esc(tm.exact_match_count)} opción(es) cumplen las restricciones temporales.</div>`;

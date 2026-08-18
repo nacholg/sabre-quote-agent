@@ -4,7 +4,12 @@ import re
 import unicodedata
 from datetime import date, time, timedelta
 
-from app.models.quote_request import DayPart, TimeConstraint, TimeConstraintMode, TimeEvent
+from app.models.quote_request import (
+    DayPart,
+    TimeConstraint,
+    TimeConstraintMode,
+    TimeEvent,
+)
 
 MONTHS = {
     "enero": 1, "febrero": 2, "marzo": 3, "abril": 4,
@@ -21,7 +26,13 @@ DAYPARTS = {
     "noche": (DayPart.NIGHT, time(19, 0), time(2, 59), True),
 }
 
-PREFERRED_MARKERS = ("preferentemente", "preferible", "idealmente", "si puede ser", "si es posible")
+PREFERRED_MARKERS = (
+    "preferentemente",
+    "preferible",
+    "idealmente",
+    "si puede ser",
+    "si es posible",
+)
 
 
 def _fold(value: str) -> str:
@@ -29,31 +40,229 @@ def _fold(value: str) -> str:
     return "".join(ch for ch in value if unicodedata.category(ch) != "Mn")
 
 
-def _year_for(month: int, day: int, today: date, explicit_year: int | None = None) -> int:
+def _year_for(
+    month: int,
+    day: int,
+    today: date,
+    explicit_year: int | None = None,
+) -> int:
     if explicit_year:
         return explicit_year
     candidate = date(today.year, month, day)
     return today.year if candidate >= today else today.year + 1
 
 
-def _date_value(day: str, month: str, year: str | None, today: date) -> date:
+def _date_value(
+    day: str,
+    month: str,
+    year: str | None,
+    today: date,
+) -> date:
     m = MONTHS[month]
-    return date(_year_for(m, int(day), today, int(year) if year else None), m, int(day))
+    return date(
+        _year_for(
+            m,
+            int(day),
+            today,
+            int(year) if year else None,
+        ),
+        m,
+        int(day),
+    )
 
 
 def _mode(before: str, after: str = "") -> TimeConstraintMode:
     context = _fold(before[-80:] + " " + after[:80])
-    return TimeConstraintMode.PREFERRED if any(x in context for x in PREFERRED_MARKERS) else TimeConstraintMode.REQUIRED
+    return (
+        TimeConstraintMode.PREFERRED
+        if any(x in context for x in PREFERRED_MARKERS)
+        else TimeConstraintMode.REQUIRED
+    )
 
 
 def _date_matches(text: str):
     pattern = re.compile(
         r"\b(?:el\s+)?(\d{1,2})\s+de\s+"
-        r"(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)"
+        r"(enero|febrero|marzo|abril|mayo|junio|julio|agosto|"
+        r"septiembre|setiembre|octubre|noviembre|diciembre)"
         r"(?:\s+(?:de\s+)?(20\d{2}))?"
-        r"(?:\s+(?:a\s+la|por\s+la|por)\s+(madrugada|manana|mediodia|tarde|noche))?"
+        r"(?:\s+(?:a\s+la|por\s+la|por)\s+"
+        r"(madrugada|manana|mediodia|tarde|noche))?"
     )
     return list(pattern.finditer(text))
+
+
+def _clock_time(
+    hour_text: str,
+    minute_text: str | None = None,
+    qualifier: str | None = None,
+) -> time:
+    hour = int(hour_text)
+    minute = int(minute_text or 0)
+
+    qualifier = qualifier or ""
+    if qualifier in {"tarde", "noche"} and hour < 12:
+        hour += 12
+    elif qualifier == "madrugada" and hour == 12:
+        hour = 0
+    elif qualifier == "manana" and hour == 12:
+        hour = 0
+
+    if hour > 23 or minute > 59:
+        raise ValueError("Horario fuera de rango.")
+
+    return time(hour, minute)
+
+
+def _time_expr_context(before: str, after: str) -> str:
+    return _fold((before[-70:] + " " + after[:100]).strip())
+
+
+def _explicit_time_window(
+    before: str,
+    after: str,
+) -> tuple[
+    time | None,
+    time | None,
+    bool,
+    str | None,
+    bool,
+]:
+    """
+    Returns:
+      time_from, time_to, wraps_midnight, label, force_preferred
+    """
+    context = _time_expr_context(before, after)
+
+    clock = (
+        r"(\d{1,2})(?::(\d{2}))?"
+        r"(?:\s*(?:hs?|h|horas?))?"
+        r"(?:\s+de\s+la\s+(manana|tarde|noche|madrugada))?"
+    )
+
+    between = re.search(
+        rf"\b(?:entre|desde)\s+(?:las?\s+)?{clock}"
+        rf"\s+(?:y|a|hasta)\s+(?:las?\s+)?{clock}\b",
+        context,
+    )
+    if between:
+        start = _clock_time(
+            between.group(1),
+            between.group(2),
+            between.group(3),
+        )
+        end = _clock_time(
+            between.group(4),
+            between.group(5),
+            between.group(6),
+        )
+        wraps = end < start
+        return (
+            start,
+            end,
+            wraps,
+            f"entre {start.strftime('%H:%M')} y {end.strftime('%H:%M')}",
+            False,
+        )
+
+    after_match = re.search(
+        rf"\b(?:despues\s+de|a\s+partir\s+de|no\s+antes\s+de)"
+        rf"\s+(?:las?\s+)?{clock}\b",
+        context,
+    )
+    if after_match:
+        start = _clock_time(
+            after_match.group(1),
+            after_match.group(2),
+            after_match.group(3),
+        )
+        return (
+            start,
+            None,
+            False,
+            f"desde {start.strftime('%H:%M')}",
+            False,
+        )
+
+    before_match = re.search(
+        rf"\b(?:antes\s+de|hasta|como\s+maximo(?:\s+a)?|"
+        rf"no\s+despues\s+de)"
+        rf"\s+(?:las?\s+)?{clock}\b",
+        context,
+    )
+    if before_match:
+        end = _clock_time(
+            before_match.group(1),
+            before_match.group(2),
+            before_match.group(3),
+        )
+        return (
+            None,
+            end,
+            False,
+            f"hasta {end.strftime('%H:%M')}",
+            False,
+        )
+
+    around = re.search(
+        rf"\b(?:alrededor\s+de|cerca\s+de|aproximadamente)"
+        rf"\s+(?:las?\s+)?{clock}\b",
+        context,
+    )
+    if around:
+        center = _clock_time(
+            around.group(1),
+            around.group(2),
+            around.group(3),
+        )
+        center_minutes = center.hour * 60 + center.minute
+        start_minutes = max(0, center_minutes - 60)
+        end_minutes = min(23 * 60 + 59, center_minutes + 60)
+        start = time(start_minutes // 60, start_minutes % 60)
+        end = time(end_minutes // 60, end_minutes % 60)
+        return (
+            start,
+            end,
+            False,
+            f"alrededor de {center.strftime('%H:%M')}",
+            True,
+        )
+
+    return None, None, False, None, False
+
+
+def _constraint_parts(
+    match,
+    before: str,
+    after: str,
+) -> tuple[
+    DayPart | None,
+    time | None,
+    time | None,
+    bool,
+    str | None,
+    bool,
+]:
+    explicit_from, explicit_to, explicit_wraps, explicit_label, force_preferred = (
+        _explicit_time_window(before, after)
+    )
+
+    if explicit_from is not None or explicit_to is not None:
+        return (
+            None,
+            explicit_from,
+            explicit_to,
+            explicit_wraps,
+            explicit_label,
+            force_preferred,
+        )
+
+    part, start, end, wraps = DAYPARTS.get(
+        match.group(4),
+        (None, None, None, False),
+    )
+    return part, start, end, wraps, match.group(4), False
+
 
 def parse_time_constraints(text: str, *, today: date):
     folded = _fold(text)
@@ -82,30 +291,22 @@ def parse_time_constraints(text: str, *, today: date):
         r")\b"
     )
 
-    # ---------------------------------------------------------
-    # IDA
-    # ---------------------------------------------------------
     if out_matches:
         match = out_matches[-1]
-
         before = outbound[:match.start()]
         after = outbound[match.end():]
 
-        # Una fecha por sí sola NO es una restricción horaria.
-        #
-        # Ejemplo:
-        #   "del 19 al 30 de septiembre"
-        #
-        # debe seguir siendo manejado por _parse_dates().
-        #
-        # Sólo intervenimos cuando existe una intención temporal:
-        #   "llegando el 11 de febrero"
-        #   "saliendo el 10 de febrero"
-        #   "el 10 de febrero por la noche"
+        explicit_from, explicit_to, _, _, _ = _explicit_time_window(
+            before,
+            after,
+        )
+
         temporal_cue = bool(
             match.group(4)
+            or explicit_from is not None
+            or explicit_to is not None
             or temporal_event_pattern.search(
-                before + " " + after[:60]
+                before + " " + after[:80]
             )
         )
 
@@ -113,9 +314,7 @@ def parse_time_constraints(text: str, *, today: date):
             event = (
                 TimeEvent.ARRIVAL
                 if re.search(
-                    r"\b("
-                    r"lleguen|llegar|llegando|llegada"
-                    r")\b",
+                    r"\b(lleguen|llegar|llegando|llegada)\b",
                     before,
                 )
                 else TimeEvent.DEPARTURE
@@ -128,9 +327,16 @@ def parse_time_constraints(text: str, *, today: date):
                 today,
             )
 
-            part, start, end, wraps = DAYPARTS.get(
-                match.group(4),
-                (None, None, None, False),
+            part, start, end, wraps, label, force_preferred = _constraint_parts(
+                match,
+                before,
+                after,
+            )
+
+            mode = (
+                TimeConstraintMode.PREFERRED
+                if force_preferred
+                else _mode(before, after)
             )
 
             constraints.append(
@@ -141,15 +347,14 @@ def parse_time_constraints(text: str, *, today: date):
                     time_from=start,
                     time_to=end,
                     daypart=part,
-                    mode=_mode(before, after),
+                    mode=mode,
                     wraps_midnight=wraps,
-                    label=match.group(4),
+                    label=label,
                 )
             )
 
             if event == TimeEvent.ARRIVAL:
                 inferred_departure = d - timedelta(days=1)
-
                 assumptions.append(
                     f"Salida de ida inferida: "
                     f"{inferred_departure.isoformat()} "
@@ -158,19 +363,22 @@ def parse_time_constraints(text: str, *, today: date):
             else:
                 inferred_departure = d
 
-    # ---------------------------------------------------------
-    # REGRESO
-    # ---------------------------------------------------------
     if in_matches:
         first = in_matches[0]
-
         before = inbound[:first.start()]
         after = inbound[first.end():]
 
+        explicit_from, explicit_to, _, _, _ = _explicit_time_window(
+            before,
+            after,
+        )
+
         temporal_cue = bool(
             first.group(4)
+            or explicit_from is not None
+            or explicit_to is not None
             or temporal_event_pattern.search(
-                before + " " + after[:60]
+                before + " " + after[:80]
             )
         )
 
@@ -182,9 +390,16 @@ def parse_time_constraints(text: str, *, today: date):
                 today,
             )
 
-            part, start, end, wraps = DAYPARTS.get(
-                first.group(4),
-                (None, None, None, False),
+            part, start, end, wraps, label, force_preferred = _constraint_parts(
+                first,
+                before,
+                after,
+            )
+
+            mode = (
+                TimeConstraintMode.PREFERRED
+                if force_preferred
+                else _mode(before, after)
             )
 
             constraints.append(
@@ -195,29 +410,22 @@ def parse_time_constraints(text: str, *, today: date):
                     time_from=start,
                     time_to=end,
                     daypart=part,
-                    mode=_mode(before, after),
+                    mode=mode,
                     wraps_midnight=wraps,
-                    label=first.group(4),
+                    label=label,
                 )
             )
-
             inferred_return = d
 
-        # Puede existir además una restricción de llegada del regreso:
-        #
-        # "regreso el 20 de febrero por la noche,
-        #  llegando el 21 de febrero"
         if len(in_matches) >= 2:
             second = in_matches[1]
-
             prefix = inbound[
-                max(0, second.start() - 40):
+                max(0, second.start() - 60):
                 second.start()
             ]
-
             suffix = inbound[
                 second.end():
-                second.end() + 40
+                second.end() + 100
             ]
 
             if re.search(
@@ -231,9 +439,18 @@ def parse_time_constraints(text: str, *, today: date):
                     today,
                 )
 
-                part2, start2, end2, wraps2 = DAYPARTS.get(
-                    second.group(4),
-                    (None, None, None, False),
+                part2, start2, end2, wraps2, label2, force_preferred2 = (
+                    _constraint_parts(
+                        second,
+                        prefix,
+                        suffix,
+                    )
+                )
+
+                mode2 = (
+                    TimeConstraintMode.PREFERRED
+                    if force_preferred2
+                    else _mode(prefix, suffix)
                 )
 
                 constraints.append(
@@ -244,9 +461,9 @@ def parse_time_constraints(text: str, *, today: date):
                         time_from=start2,
                         time_to=end2,
                         daypart=part2,
-                        mode=_mode(prefix, suffix),
+                        mode=mode2,
                         wraps_midnight=wraps2,
-                        label=second.group(4),
+                        label=label2,
                     )
                 )
 

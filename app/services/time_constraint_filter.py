@@ -141,6 +141,44 @@ def _distance_minutes(
     return max(1, round(delta.total_seconds() / 60))
 
 
+def _preferred_distance_minutes(
+    actual: datetime | None,
+    constraint: TimeConstraint,
+) -> int:
+    if actual is None:
+        return 10**9
+
+    start, end = _constraint_window(constraint, actual)
+
+    if constraint.time_from is not None and constraint.time_to is not None:
+        midpoint = start + (end - start) / 2
+
+        if start <= actual <= end:
+            return round(abs((actual - midpoint).total_seconds()) / 60)
+
+        boundary_distance = min(
+            abs((actual - start).total_seconds()),
+            abs((actual - end).total_seconds()),
+        )
+        return 10_000 + round(boundary_distance / 60)
+
+    return _distance_minutes(actual, constraint)
+
+
+def _option_preferred_distances(
+    option: ItineraryOption,
+    search_legs: list[SearchLeg],
+    constraints: list[TimeConstraint],
+) -> list[int]:
+    return [
+        _preferred_distance_minutes(
+            _event_datetime(option, search_legs, constraint),
+            constraint,
+        )
+        for constraint in constraints
+    ]
+
+
 def _option_constraint_distances(
     option: ItineraryOption,
     search_legs: list[SearchLeg],
@@ -216,26 +254,43 @@ def apply_time_constraints(
         required_distances = _option_constraint_distances(
             option, search_legs, required
         )
-        preferred_distances = _option_constraint_distances(
+        preferred_window_distances = _option_constraint_distances(
+            option, search_legs, preferred
+        )
+        preferred_rank_distances = _option_preferred_distances(
             option, search_legs, preferred
         )
 
         required_total = sum(required_distances)
-        preferred_total = sum(preferred_distances)
+        preferred_total = sum(preferred_rank_distances)
         required_exact = all(distance == 0 for distance in required_distances)
+        preferred_exact = all(
+            distance == 0 for distance in preferred_window_distances
+        )
 
         key = itinerary_signature(option)
         distances_by_option[key] = (
             required_total,
             preferred_total,
             required_exact,
+            preferred_exact,
         )
 
-        if required_exact:
+        if required and required_exact:
             exact_options.append(option)
 
     candidate_count = len(options)
     exact_match_count = len(exact_options)
+    preferred_match_count = sum(
+        1
+        for (
+            _required_total,
+            _preferred_total,
+            _required_exact,
+            preferred_exact,
+        ) in distances_by_option.values()
+        if preferred and preferred_exact
+    )
     messages: list[str] = []
 
     if required and exact_options:
@@ -253,6 +308,21 @@ def apply_time_constraints(
                 f"{_human_event(constraint)} {_human_target(constraint)}; "
                 "se muestran las alternativas más cercanas."
             )
+    elif preferred:
+        selected = options
+        status = "preferred"
+        fallback_used = False
+
+        if preferred_match_count:
+            messages.append(
+                f"{preferred_match_count} opción(es) están dentro del horario "
+                "preferido; se priorizan por cercanía."
+            )
+        else:
+            messages.append(
+                "No hubo opciones dentro del horario preferido; "
+                "se muestran primero las alternativas más cercanas."
+            )
     else:
         selected = options
         status = "exact"
@@ -262,8 +332,8 @@ def apply_time_constraints(
 
     for option in selected:
         key = itinerary_signature(option)
-        required_total, preferred_total, _ = distances_by_option[key]
-        distance_by_signature[key] = required_total * 1000 + preferred_total
+        required_total, preferred_total, _, _ = distances_by_option[key]
+        distance_by_signature[key] = required_total * 1_000_000 + preferred_total
 
     selected = sorted(
         selected,
@@ -280,6 +350,7 @@ def apply_time_constraints(
             fallback_used=fallback_used,
             candidate_count=candidate_count,
             exact_match_count=exact_match_count,
+            preferred_match_count=preferred_match_count,
             selected_count=len(selected),
             messages=messages,
         ),

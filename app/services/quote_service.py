@@ -334,6 +334,17 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
             search.max_options,
         )
 
+    # Carrier diversification chooses WHICH options survive, but temporal
+    # intent must remain authoritative for their final display order.
+    ranked = reorder_ranked_by_time(
+        ranked,
+        time_filter.distance_by_signature,
+    )
+    ranked = [
+        replace(item, rank=index)
+        for index, item in enumerate(ranked, start=1)
+    ]
+
     response = QuoteSearchAPIResponse(
         environment=settings.sabre_env,
         effective_currencies=[key for key in keys if key != "OFFICIAL"],
