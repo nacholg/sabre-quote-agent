@@ -154,9 +154,14 @@ class QuoteSearchAPIRequest(BaseModel):
 class SabreSearchCall(BaseModel):
     currency: str
     cabin: str
+    mode: Literal["primary", "carrier_fallback"] = "primary"
+    preferred_carriers: list[str] = Field(default_factory=list)
     transaction_id: str | None = None
     itinerary_count: int = 0
+    normalized_count: int = 0
+    post_filter_count: int = 0
     no_availability: bool = False
+    fallback_used: bool = False
 
 
 class RankedOption(BaseModel):
