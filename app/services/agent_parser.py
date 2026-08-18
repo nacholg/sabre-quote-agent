@@ -345,6 +345,32 @@ def _parse_dates(text: str, today: date) -> tuple[date | None, date | None, list
 
 def _carrier_sets(text: str) -> tuple[list[str], list[str]]:
     folded = _fold(text)
+
+    # Posiciones ocupadas por nombres de aeropuertos/ciudades.
+    # Evita interpretar partes de una ciudad como una aerolínea:
+    # "Buenos Aires" -> no tomar "Aires" como carrier 4C.
+    location_spans: list[tuple[int, int]] = []
+
+    try:
+        repo = get_reference_repository()
+
+        location_aliases: list[str] = []
+        for entity_type in ("airport", "city"):
+            for rec in repo.alias_records(entity_type):
+                alias = _fold(rec["alias"])
+                if len(alias) >= 4:
+                    location_aliases.append(alias)
+
+        for alias in sorted(set(location_aliases), key=len, reverse=True):
+            for match in re.finditer(
+                rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])",
+                folded,
+            ):
+                location_spans.append((match.start(), match.end()))
+
+    except Exception:
+        pass
+
     excluded: set[str] = set()
     included: set[str] = set()
 
@@ -357,44 +383,90 @@ def _carrier_sets(text: str) -> tuple[list[str], list[str]]:
     )
 
     aliases: dict[str, str] = {}
+
     explicit_codes: set[str] = {
-        "AA", "AR", "LA", "G3", "IB", "UA", "DL", "AV", "CM", "LH", "AF", "KL"
+        "AA",
+        "AR",
+        "LA",
+        "G3",
+        "IB",
+        "UA",
+        "DL",
+        "AV",
+        "CM",
+        "LH",
+        "AF",
+        "KL",
     }
 
+    # Aliases estáticos.
     for alias, code in CARRIER_ALIASES.items():
         if alias.upper() == code and len(alias) <= 3:
             explicit_codes.add(code)
             continue
+
         aliases[alias] = code
 
+    # Aliases provenientes de reference.db.
     try:
-        for rec in get_reference_repository().alias_records("airline"):
-            alias, code = rec["alias"], rec["code"]
+        repo = get_reference_repository()
+
+        for rec in repo.alias_records("airline"):
+            alias = rec["alias"]
+            code = rec["code"]
+
             if alias.upper() == code and len(alias) <= 3:
                 explicit_codes.add(code)
                 continue
+
             aliases.setdefault(alias, code)
+
     except Exception:
         pass
 
+    # Nombres/aliases naturales de aerolíneas.
     for alias, code in aliases.items():
         needle = _fold(alias)
+
         if len(needle) < 3:
             continue
+
         for match in re.finditer(
             rf"(?<![a-z0-9]){re.escape(needle)}(?![a-z0-9])",
             folded,
         ):
-            before = folded[max(0, match.start() - 56):match.start()]
+            # Si la coincidencia está completamente contenida dentro
+            # de un nombre de ciudad/aeropuerto reconocido, ignorarla.
+            #
+            # Ejemplo:
+            # "Buenos Aires"
+            #          ^^^^^
+            # "Aires" no debe interpretarse como airline 4C.
+            if any(
+                match.start() >= start and match.end() <= end
+                for start, end in location_spans
+            ):
+                continue
+
+            before = folded[
+                max(0, match.start() - 56) : match.start()
+            ]
+
             if exclusion_prefix.search(before):
                 excluded.add(code)
             else:
                 included.add(code)
 
+    # Códigos IATA explícitos de aerolínea.
     for code in explicit_codes:
-        # Algunos catálogos externos contienen designadores numéricos.
-        # No deben confundirse con días, cantidades o años del prompt.
-        # Sí permitimos códigos alfanuméricos reales como G3, 5J, 6E, etc.
+        # Algunos catálogos externos contienen designadores
+        # puramente numéricos.
+        #
+        # No queremos:
+        # "20 de diciembre" -> airline "20"
+        #
+        # Sí queremos conservar códigos alfanuméricos reales:
+        # G3, 5J, 6E, etc.
         if not any(ch.isalpha() for ch in code):
             continue
 
@@ -402,14 +474,21 @@ def _carrier_sets(text: str) -> tuple[list[str], list[str]]:
             rf"(?<![A-Za-z0-9]){re.escape(code)}(?![A-Za-z0-9])",
             text,
         ):
-            before = _fold(text[max(0, match.start() - 56):match.start()])
+            before = _fold(
+                text[
+                    max(0, match.start() - 56) : match.start()
+                ]
+            )
+
             if exclusion_prefix.search(before):
                 excluded.add(code)
             else:
                 included.add(code)
 
+    # Una exclusión siempre gana sobre una inclusión.
     included -= excluded
 
+    # "cualquier aerolínea", "todas las aerolíneas", etc.
     if re.search(
         r"\b(cualquier|cualquiera|todas?)\b.{0,24}"
         r"\b(aerolinea|aerolineas|compania|companias)\b",
@@ -418,7 +497,6 @@ def _carrier_sets(text: str) -> tuple[list[str], list[str]]:
         included.clear()
 
     return sorted(included), sorted(excluded)
-
 
 def _passengers(text: str) -> tuple[list[PassengerSpec], list[str]]:
     folded = _fold(text)
