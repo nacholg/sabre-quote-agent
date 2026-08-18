@@ -186,10 +186,11 @@ class RankedOption(BaseModel):
 
 
 class TimeMatchDiagnostics(BaseModel):
-    status: Literal["not_requested", "exact", "fallback"] = "not_requested"
+    status: Literal["not_requested", "exact", "fallback", "preferred"] = "not_requested"
     fallback_used: bool = False
     candidate_count: int = 0
     exact_match_count: int = 0
+    preferred_match_count: int = 0
     selected_count: int = 0
     messages: list[str] = Field(default_factory=list)
 

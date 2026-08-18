@@ -10,7 +10,11 @@ from app.models.quote_request import (
     TimeEvent,
 )
 from app.services.normalizer import itinerary_signature
-from app.services.time_constraint_filter import apply_time_constraints
+from app.services.ranking import rank_itineraries
+from app.services.time_constraint_filter import (
+    apply_time_constraints,
+    reorder_ranked_by_time,
+)
 
 
 def _fare() -> FareOption:
@@ -203,7 +207,8 @@ def test_preferred_constraint_does_not_remove_options():
 
     result = apply_time_constraints([afternoon, morning], LEGS, [constraint])
 
-    assert result.diagnostics.status == "exact"
+    assert result.diagnostics.status == "preferred"
+    assert result.diagnostics.preferred_match_count == 1
     assert len(result.options) == 2
     assert result.options[0] is morning
 
@@ -246,3 +251,139 @@ def test_required_constraints_must_all_match():
 
     assert result.diagnostics.status == "exact"
     assert result.options == [correct]
+
+
+def test_preferred_window_ranks_closest_to_midpoint_first():
+    exact_center = _round_trip(
+        outbound_departure=datetime(2027, 2, 10, 22, 0),
+        outbound_arrival=datetime(2027, 2, 11, 8, 0),
+        return_departure=datetime(2027, 2, 20, 20, 0),
+        return_arrival=datetime(2027, 2, 21, 7, 0),
+        carrier="AA",
+    )
+
+    inside_but_later = _round_trip(
+        outbound_departure=datetime(2027, 2, 10, 22, 0),
+        outbound_arrival=datetime(2027, 2, 11, 8, 55),
+        return_departure=datetime(2027, 2, 20, 20, 0),
+        return_arrival=datetime(2027, 2, 21, 7, 0),
+        carrier="DL",
+    )
+
+    outside = _round_trip(
+        outbound_departure=datetime(2027, 2, 10, 22, 0),
+        outbound_arrival=datetime(2027, 2, 11, 10, 15),
+        return_departure=datetime(2027, 2, 20, 20, 0),
+        return_arrival=datetime(2027, 2, 21, 7, 0),
+        carrier="LA",
+    )
+
+    constraint = TimeConstraint(
+        leg_index=0,
+        event=TimeEvent.ARRIVAL,
+        date=date(2027, 2, 11),
+        time_from=time(7, 0),
+        time_to=time(9, 0),
+        mode=TimeConstraintMode.PREFERRED,
+        label="alrededor de 08:00",
+    )
+
+    result = apply_time_constraints(
+        [outside, inside_but_later, exact_center],
+        LEGS,
+        [constraint],
+    )
+
+    assert result.diagnostics.status == "preferred"
+    assert result.diagnostics.preferred_match_count == 2
+    assert result.options == [exact_center, inside_but_later, outside]
+
+
+def test_preferred_window_with_no_match_keeps_all_and_orders_nearest():
+    near = _round_trip(
+        outbound_departure=datetime(2027, 2, 10, 22, 0),
+        outbound_arrival=datetime(2027, 2, 11, 9, 20),
+        return_departure=datetime(2027, 2, 20, 20, 0),
+        return_arrival=datetime(2027, 2, 21, 7, 0),
+        carrier="AA",
+    )
+
+    far = _round_trip(
+        outbound_departure=datetime(2027, 2, 10, 22, 0),
+        outbound_arrival=datetime(2027, 2, 11, 12, 0),
+        return_departure=datetime(2027, 2, 20, 20, 0),
+        return_arrival=datetime(2027, 2, 21, 7, 0),
+        carrier="DL",
+    )
+
+    constraint = TimeConstraint(
+        leg_index=0,
+        event=TimeEvent.ARRIVAL,
+        date=date(2027, 2, 11),
+        time_from=time(7, 0),
+        time_to=time(9, 0),
+        mode=TimeConstraintMode.PREFERRED,
+        label="alrededor de 08:00",
+    )
+
+    result = apply_time_constraints([far, near], LEGS, [constraint])
+
+    assert result.diagnostics.status == "preferred"
+    assert result.diagnostics.preferred_match_count == 0
+    assert len(result.options) == 2
+    assert result.options[0] is near
+
+
+def test_preferred_time_reorder_wins_over_price_ranking():
+    cheap_outside = _round_trip(
+        outbound_departure=datetime(2027, 2, 10, 19, 21),
+        outbound_arrival=datetime(2027, 2, 11, 10, 15),
+        return_departure=datetime(2027, 2, 20, 20, 0),
+        return_arrival=datetime(2027, 2, 21, 7, 0),
+        carrier="LA",
+    )
+    cheap_outside.fare.price_per_passenger = Decimal("487")
+    cheap_outside.fare.total_price = Decimal("487")
+    cheap_outside.fares_by_currency["USD"].price_per_passenger = Decimal("487")
+    cheap_outside.fares_by_currency["USD"].total_price = Decimal("487")
+
+    preferred_inside = _round_trip(
+        outbound_departure=datetime(2027, 2, 10, 23, 35),
+        outbound_arrival=datetime(2027, 2, 11, 8, 55),
+        return_departure=datetime(2027, 2, 20, 20, 0),
+        return_arrival=datetime(2027, 2, 21, 7, 0),
+        carrier="AA",
+    )
+    preferred_inside.fare.price_per_passenger = Decimal("538")
+    preferred_inside.fare.total_price = Decimal("538")
+    preferred_inside.fares_by_currency["USD"].price_per_passenger = Decimal("538")
+    preferred_inside.fares_by_currency["USD"].total_price = Decimal("538")
+
+    constraint = TimeConstraint(
+        leg_index=0,
+        event=TimeEvent.ARRIVAL,
+        date=date(2027, 2, 11),
+        time_from=time(7, 0),
+        time_to=time(9, 0),
+        mode=TimeConstraintMode.PREFERRED,
+        label="alrededor de 08:00",
+    )
+
+    filtered = apply_time_constraints(
+        [cheap_outside, preferred_inside],
+        LEGS,
+        [constraint],
+    )
+
+    commercially_ranked = rank_itineraries(
+        filtered.options,
+        mode="price",
+        preferred_currency="USD",
+    )
+    assert commercially_ranked[0].option is cheap_outside
+
+    final_ranked = reorder_ranked_by_time(
+        commercially_ranked,
+        filtered.distance_by_signature,
+    )
+    assert final_ranked[0].option is preferred_inside

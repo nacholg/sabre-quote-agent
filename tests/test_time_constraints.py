@@ -98,3 +98,111 @@ def test_repeated_route_locations_do_not_trigger_open_jaw_warning():
         "más de dos aeropuertos" in warning
         for warning in parsed.warnings
     )
+
+
+def test_departure_after_explicit_hour():
+    parsed = parse_agent_quote(
+        AgentQuoteRequest(
+            text="Cotizar EZE MIA saliendo el 10 de febrero después de las 20.",
+            execute=False,
+        ),
+        today=TODAY,
+    )
+    c = parsed.search_request.time_constraints[0]
+    assert c.event == TimeEvent.DEPARTURE
+    assert c.time_from == time(20, 0)
+    assert c.time_to is None
+    assert c.mode == TimeConstraintMode.REQUIRED
+
+
+def test_arrival_before_explicit_hour():
+    parsed = parse_agent_quote(
+        AgentQuoteRequest(
+            text="Cotizar EZE MIA llegando el 11 de febrero antes de las 10.",
+            execute=False,
+        ),
+        today=TODAY,
+    )
+    c = parsed.search_request.time_constraints[0]
+    assert c.event == TimeEvent.ARRIVAL
+    assert c.time_from is None
+    assert c.time_to == time(10, 0)
+
+
+def test_between_explicit_hours():
+    parsed = parse_agent_quote(
+        AgentQuoteRequest(
+            text="Cotizar EZE MIA saliendo el 10 de febrero entre las 18 y 22 hs.",
+            execute=False,
+        ),
+        today=TODAY,
+    )
+    c = parsed.search_request.time_constraints[0]
+    assert c.time_from == time(18, 0)
+    assert c.time_to == time(22, 0)
+    assert c.wraps_midnight is False
+
+
+def test_no_antes_de_maps_to_lower_bound():
+    parsed = parse_agent_quote(
+        AgentQuoteRequest(
+            text="Cotizar EZE MIA saliendo el 10 de febrero no antes de las 19.",
+            execute=False,
+        ),
+        today=TODAY,
+    )
+    c = parsed.search_request.time_constraints[0]
+    assert c.time_from == time(19, 0)
+    assert c.time_to is None
+
+
+def test_como_maximo_maps_to_upper_bound():
+    parsed = parse_agent_quote(
+        AgentQuoteRequest(
+            text="Cotizar EZE MIA llegando el 11 de febrero como máximo a las 14.",
+            execute=False,
+        ),
+        today=TODAY,
+    )
+    c = parsed.search_request.time_constraints[0]
+    assert c.time_from is None
+    assert c.time_to == time(14, 0)
+
+
+def test_around_time_is_preferred_one_hour_window():
+    parsed = parse_agent_quote(
+        AgentQuoteRequest(
+            text=(
+                "Cotizar EZE MIA llegando el 11 de febrero "
+                "alrededor de las 8 de la mañana."
+            ),
+            execute=False,
+        ),
+        today=TODAY,
+    )
+    c = parsed.search_request.time_constraints[0]
+    assert c.event == TimeEvent.ARRIVAL
+    assert c.time_from == time(7, 0)
+    assert c.time_to == time(9, 0)
+    assert c.mode == TimeConstraintMode.PREFERRED
+
+
+def test_return_explicit_time_constraints():
+    parsed = parse_agent_quote(
+        AgentQuoteRequest(
+            text=(
+                "Cotizar EZE MIA saliendo el 10 de febrero después de las 20, "
+                "con regreso el 20 de febrero entre las 18 y 22."
+            ),
+            execute=False,
+        ),
+        today=TODAY,
+    )
+
+    assert len(parsed.search_request.time_constraints) == 2
+    out, ret = parsed.search_request.time_constraints
+    assert out.leg_index == 0
+    assert out.time_from == time(20, 0)
+    assert ret.leg_index == 1
+    assert ret.time_from == time(18, 0)
+    assert ret.time_to == time(22, 0)
