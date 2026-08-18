@@ -13,6 +13,10 @@ from app.services.quote_renderer import render_ranked_client_quote
 from app.services.ranking import rank_itineraries
 from app.services.fare_preference_filter import filter_refundable_itineraries
 from app.services.quote_repository import get_quote_repository
+from app.services.time_constraint_filter import (
+    apply_time_constraints,
+    reorder_ranked_by_time,
+)
 
 
 
@@ -295,6 +299,13 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
     if search.fare_preference == FarePreference.REFUNDABLE:
         normalized = filter_refundable_itineraries(normalized)
 
+    time_filter = apply_time_constraints(
+        normalized,
+        search.effective_legs(),
+        search.time_constraints,
+    )
+    normalized = time_filter.options
+
     ranking_currency = (
         "ARS"
         if normalized and normalized[0].is_domestic_argentina
@@ -306,6 +317,14 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
         mode=request.sort,
         preferred_currency=ranking_currency,
     )
+    ranked_all = reorder_ranked_by_time(
+        ranked_all,
+        time_filter.distance_by_signature,
+    )
+    ranked_all = [
+        replace(item, rank=index)
+        for index, item in enumerate(ranked_all, start=1)
+    ]
 
     if search.preferred_carriers:
         ranked = ranked_all[: search.max_options]
@@ -333,6 +352,7 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
             for item in ranked
         ],
         client_quote=render_ranked_client_quote(ranked),
+        time_match=time_filter.diagnostics,
     )
 
     if request.persist:
