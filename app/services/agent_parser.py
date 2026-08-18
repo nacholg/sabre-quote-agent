@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections import defaultdict
 from datetime import date
+from functools import lru_cache
 from typing import Iterable
 
 from app.models.api import AgentInterpretation, AgentQuoteRequest, QuoteSearchAPIRequest
@@ -12,137 +14,76 @@ from app.services.reference_repository import get_reference_repository
 
 
 AIRPORT_ALIASES = {
-    "eze": "EZE",
-    "ezeiza": "EZE",
-    "aep": "AEP",
-    "aeroparque": "AEP",
-    "bue": "BUE",
-    "buenos aires": "BUE",
-    "mia": "MIA",
-    "miami": "MIA",
-    "jfk": "JFK",
-    "nueva york": "JFK",
-    "new york": "JFK",
-    "nyc": "JFK",
-    "dfw": "DFW",
-    "dallas": "DFW",
-    "mad": "MAD",
-    "madrid": "MAD",
-    "bcn": "BCN",
-    "barcelona": "BCN",
-    "lhr": "LHR",
-    "londres": "LHR",
-    "london": "LHR",
-    "cdg": "CDG",
-    "paris": "CDG",
-    "parís": "CDG",
-    "gru": "GRU",
-    "sao paulo": "GRU",
-    "são paulo": "GRU",
-    "gig": "GIG",
-    "rio": "GIG",
-    "rio de janeiro": "GIG",
-    "scl": "SCL",
-    "santiago": "SCL",
-    "lim": "LIM",
-    "lima": "LIM",
-    "bog": "BOG",
-    "bogota": "BOG",
-    "bogotá": "BOG",
-    "pty": "PTY",
-    "panama": "PTY",
-    "panamá": "PTY",
-    "cor": "COR",
-    "cordoba": "COR",
-    "córdoba": "COR",
-    "mdz": "MDZ",
-    "mendoza": "MDZ",
-    "brc": "BRC",
-    "bariloche": "BRC",
-    "nqn": "NQN",
-    "neuquen": "NQN",
-    "neuquén": "NQN",
-    "ush": "USH",
-    "ushuaia": "USH",
-    "ros": "ROS",
-    "rosario": "ROS",
-    "sla": "SLA",
-    "salta": "SLA",
-    "tuc": "TUC",
-    "tucuman": "TUC",
-    "tucumán": "TUC",
-    "igr": "IGR",
-    "iguazu": "IGR",
-    "iguazú": "IGR",
-    "fte": "FTE",
-    "el calafate": "FTE",
-    "calafate": "FTE",
-    "fco": "FCO",
-    "roma": "FCO",
-    "rome": "FCO",
+    "eze": "EZE", "ezeiza": "EZE",
+    "aep": "AEP", "aeroparque": "AEP",
+    "bue": "BUE", "buenos aires": "BUE",
+    "mia": "MIA", "miami": "MIA",
+    "jfk": "JFK", "nueva york": "JFK", "new york": "JFK", "nyc": "JFK",
+    "dfw": "DFW", "dallas": "DFW",
+    "mad": "MAD", "madrid": "MAD",
+    "bcn": "BCN", "barcelona": "BCN",
+    "lhr": "LHR", "londres": "LHR", "london": "LHR",
+    "cdg": "CDG", "paris": "CDG", "parís": "CDG",
+    "gru": "GRU", "sao paulo": "GRU", "são paulo": "GRU",
+    "gig": "GIG", "rio": "GIG", "rio de janeiro": "GIG",
+    "scl": "SCL", "santiago": "SCL",
+    "lim": "LIM", "lima": "LIM",
+    "bog": "BOG", "bogota": "BOG", "bogotá": "BOG",
+    "pty": "PTY", "panama": "PTY", "panamá": "PTY",
+    "cor": "COR", "cordoba": "COR", "córdoba": "COR",
+    "mdz": "MDZ", "mendoza": "MDZ",
+    "brc": "BRC", "bariloche": "BRC",
+    "nqn": "NQN", "neuquen": "NQN", "neuquén": "NQN",
+    "ush": "USH", "ushuaia": "USH",
+    "ros": "ROS", "rosario": "ROS",
+    "sla": "SLA", "salta": "SLA",
+    "tuc": "TUC", "tucuman": "TUC", "tucumán": "TUC",
+    "igr": "IGR", "iguazu": "IGR", "iguazú": "IGR",
+    "fte": "FTE", "el calafate": "FTE", "calafate": "FTE",
+    "fco": "FCO", "roma": "FCO", "rome": "FCO",
 }
 
 CARRIER_ALIASES = {
-    "aa": "AA",
-    "american": "AA",
-    "american airlines": "AA",
-    "ar": "AR",
-    "aerolineas": "AR",
-    "aerolíneas": "AR",
-    "aerolineas argentinas": "AR",
-    "aerolíneas argentinas": "AR",
-    "latam": "LA",
-    "latam airlines": "LA",
-    "g3": "G3",
-    "gol": "G3",
-    "gol linhas aereas": "G3",
-    "gol linhas aéreas": "G3",
-    "gol linhas": "G3",
-    "ib": "IB",
-    "iberia": "IB",
-    "ua": "UA",
-    "united": "UA",
-    "united airlines": "UA",
-    "dl": "DL",
-    "delta": "DL",
-    "delta air lines": "DL",
-    "av": "AV",
-    "avianca": "AV",
-    "cm": "CM",
-    "copa": "CM",
-    "copa airlines": "CM",
-    "lh": "LH",
-    "lufthansa": "LH",
-    "af": "AF",
-    "air france": "AF",
-    "kl": "KL",
-    "klm": "KL",
+    "aa": "AA", "american": "AA", "american airlines": "AA",
+    "ar": "AR", "aerolineas": "AR", "aerolíneas": "AR",
+    "aerolineas argentinas": "AR", "aerolíneas argentinas": "AR",
+    "latam": "LA", "latam airlines": "LA",
+    "g3": "G3", "gol": "G3", "gol linhas aereas": "G3",
+    "gol linhas aéreas": "G3", "gol linhas": "G3",
+    "ib": "IB", "iberia": "IB",
+    "ua": "UA", "united": "UA", "united airlines": "UA",
+    "dl": "DL", "delta": "DL", "delta air lines": "DL",
+    "av": "AV", "avianca": "AV",
+    "cm": "CM", "copa": "CM", "copa airlines": "CM",
+    "lh": "LH", "lufthansa": "LH",
+    "af": "AF", "air france": "AF",
+    "kl": "KL", "klm": "KL",
 }
 
 MONTHS = {
-    "enero": 1, "january": 1,
-    "febrero": 2, "february": 2,
-    "marzo": 3, "march": 3,
-    "abril": 4, "april": 4,
-    "mayo": 5, "may": 5,
-    "junio": 6, "june": 6,
-    "julio": 7, "july": 7,
-    "agosto": 8, "august": 8,
+    "enero": 1, "january": 1, "febrero": 2, "february": 2,
+    "marzo": 3, "march": 3, "abril": 4, "april": 4,
+    "mayo": 5, "may": 5, "junio": 6, "june": 6,
+    "julio": 7, "july": 7, "agosto": 8, "august": 8,
     "septiembre": 9, "setiembre": 9, "september": 9,
-    "octubre": 10, "october": 10,
-    "noviembre": 11, "november": 11,
+    "octubre": 10, "october": 10, "noviembre": 11, "november": 11,
     "diciembre": 12, "december": 12,
 }
 
 NUMBER_WORDS = {
-    "un": 1, "uno": 1, "una": 1,
-    "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
-    "seis": 6, "siete": 7, "ocho": 8, "nueve": 9,
+    "un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3,
+    "cuatro": 4, "cinco": 5, "seis": 6, "siete": 7,
+    "ocho": 8, "nueve": 9,
 }
 
 ARGENTINA_AIRPORTS = {
     "EZE", "AEP", "BUE", "COR", "MDZ", "BRC", "NQN", "USH",
     "ROS", "SLA", "TUC", "IGR", "FTE",
+}
+
+UNSAFE_LOCATION_TOKENS = {
+    "the", "and", "for", "con", "sin", "del", "por", "via",
+    "ida", "dos", "una", "uno", "las", "los", "san",
 }
 
 
@@ -160,86 +101,147 @@ def _contains_alias(text_folded: str, aliases: Iterable[str]) -> str | None:
     return None
 
 
+@lru_cache(maxsize=1)
+def _location_reference_index() -> tuple[
+    dict[str, tuple[tuple[str, str], ...]],
+    tuple[str, ...],
+]:
+    index: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    explicit_codes: set[str] = set()
+
+    for alias, code in AIRPORT_ALIASES.items():
+        folded_alias = _fold(alias).strip()
+        if len(alias) == 3 and alias.isalpha():
+            explicit_codes.add(code)
+            continue
+        if folded_alias:
+            index[folded_alias.split()[0]].append((folded_alias, code))
+
+    try:
+        repo = get_reference_repository()
+        for entity_type in ("airport", "city"):
+            for rec in repo.alias_records(entity_type):
+                alias = str(rec["alias"]).strip()
+                code = str(rec["code"]).upper().strip()
+                if not alias or not code:
+                    continue
+                if alias.upper() == code and len(alias) == 3:
+                    explicit_codes.add(code)
+                    continue
+                folded_alias = _fold(alias).strip()
+                if folded_alias:
+                    index[folded_alias.split()[0]].append((folded_alias, code))
+    except Exception:
+        pass
+
+    normalized: dict[str, tuple[tuple[str, str], ...]] = {}
+    for first_word, values in index.items():
+        unique = list(dict.fromkeys(values))
+        normalized[first_word] = tuple(
+            sorted(unique, key=lambda item: len(item[0]), reverse=True)
+        )
+
+    return normalized, tuple(sorted(explicit_codes))
+
+
+@lru_cache(maxsize=1)
+def _airline_reference_index() -> tuple[
+    dict[str, tuple[tuple[str, str], ...]],
+    tuple[str, ...],
+]:
+    index: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    explicit_codes: set[str] = {
+        "AA", "AR", "LA", "G3", "IB", "UA", "DL", "AV", "CM", "LH", "AF", "KL"
+    }
+
+    for alias, code in CARRIER_ALIASES.items():
+        if alias.upper() == code and len(alias) <= 3:
+            explicit_codes.add(code)
+            continue
+        folded_alias = _fold(alias).strip()
+        if len(folded_alias) >= 3:
+            index[folded_alias.split()[0]].append((folded_alias, code))
+
+    try:
+        repo = get_reference_repository()
+        for rec in repo.alias_records("airline"):
+            alias = str(rec["alias"]).strip()
+            code = str(rec["code"]).upper().strip()
+            if not alias or not code:
+                continue
+            if alias.upper() == code and len(alias) <= 3:
+                explicit_codes.add(code)
+                continue
+            folded_alias = _fold(alias).strip()
+            if len(folded_alias) >= 3:
+                index[folded_alias.split()[0]].append((folded_alias, code))
+    except Exception:
+        pass
+
+    normalized: dict[str, tuple[tuple[str, str], ...]] = {}
+    for first_word, values in index.items():
+        unique = list(dict.fromkeys(values))
+        normalized[first_word] = tuple(
+            sorted(unique, key=lambda item: len(item[0]), reverse=True)
+        )
+
+    return normalized, tuple(sorted(explicit_codes))
+
+
+def clear_reference_parser_caches() -> None:
+    _location_reference_index.cache_clear()
+    _airline_reference_index.cache_clear()
+
+
 def _airport_occurrences(text: str) -> list[tuple[int, str]]:
     folded = _fold(text)
     found: list[tuple[int, str]] = []
     occupied: list[tuple[int, int]] = []
 
-    # Explicit route notation such as MAD-MEX / EZE/MIA is strong enough
-    # to accept lowercase 3-letter tokens even before reference.db is populated.
-    unsafe_location_tokens = {
-        "the", "and", "for", "con", "sin", "del", "por", "via",
-        "ida", "dos", "una", "uno", "las", "los", "san",
-    }
     for route_match in re.finditer(
         r"(?<![A-Za-z0-9])([A-Za-z]{3})\s*[-/]\s*([A-Za-z]{3})(?![A-Za-z0-9])",
         text,
     ):
         for group_index in (1, 2):
             token = route_match.group(group_index)
-            code = token.upper()
-            if token.lower() in unsafe_location_tokens:
+            if token.lower() in UNSAFE_LOCATION_TOKENS:
                 continue
-            start_pos = route_match.start(group_index)
-            end_pos = route_match.end(group_index)
-            found.append((start_pos, code))
-            occupied.append((start_pos, end_pos))
+            found.append((route_match.start(group_index), token.upper()))
+            occupied.append((route_match.start(group_index), route_match.end(group_index)))
 
-    candidates: dict[str, str] = {
-        alias: code
-        for alias, code in AIRPORT_ALIASES.items()
-        if not (len(alias) == 3 and alias.isalpha())
-    }
-    explicit_codes: set[str] = set()
+    location_index, explicit_codes = _location_reference_index()
+    words = set(re.findall(r"[a-z0-9]+", folded))
 
-    try:
-        repo = get_reference_repository()
-        for rec in repo.alias_records("airport"):
-            alias, code = rec["alias"], rec["code"]
-            if alias.upper() == code and len(alias) == 3:
-                explicit_codes.add(code)
-                continue
-            candidates.setdefault(alias, code)
-        for rec in repo.alias_records("city"):
-            alias, code = rec["alias"], rec["code"]
-            if alias.upper() == code and len(alias) == 3:
-                explicit_codes.add(code)
-                continue
-            candidates.setdefault(alias, code)
-    except Exception:
-        pass
+    candidates: list[tuple[str, str]] = []
+    for word in words:
+        candidates.extend(location_index.get(word, ()))
+    candidates.sort(key=lambda item: len(item[0]), reverse=True)
 
-    explicit_codes.update(
-        code for alias, code in AIRPORT_ALIASES.items()
-        if len(alias) == 3 and alias.isalpha()
-    )
-
-    for alias in sorted(candidates, key=len, reverse=True):
-        needle = _fold(alias)
+    for needle, code in candidates:
+        if needle not in folded:
+            continue
         for match in re.finditer(
             rf"(?<![a-z0-9]){re.escape(needle)}(?![a-z0-9])",
             folded,
         ):
             if any(not (match.end() <= a or match.start() >= b) for a, b in occupied):
                 continue
-            found.append((match.start(), candidates[alias]))
-            occupied.append((match.start(), match.end()))
-
-    # Raw 3-letter location codes may be typed lowercase by users.
-    # We allow case-insensitive exact-token matches, but explicitly block
-    # ordinary Spanish/English words that can also be valid IATA codes.
-    for code in explicit_codes:
-        if code.lower() in unsafe_location_tokens:
-            continue
-        for match in re.finditer(
-            rf"(?<![A-Za-z0-9]){re.escape(code)}(?![A-Za-z0-9])",
-            text,
-            flags=re.IGNORECASE,
-        ):
-            if any(not (match.end() <= a or match.start() >= b) for a, b in occupied):
-                continue
             found.append((match.start(), code))
             occupied.append((match.start(), match.end()))
+
+    explicit_code_set = set(explicit_codes)
+    token_matches = list(
+        re.finditer(r"(?<![A-Za-z0-9])[A-Za-z]{3}(?![A-Za-z0-9])", text)
+    )
+    for token_match in token_matches:
+        token = token_match.group(0)
+        code = token.upper()
+        if token.lower() in UNSAFE_LOCATION_TOKENS or code not in explicit_code_set:
+            continue
+        if any(not (token_match.end() <= a or token_match.start() >= b) for a, b in occupied):
+            continue
+        found.append((token_match.start(), code))
+        occupied.append((token_match.start(), token_match.end()))
 
     found.sort()
     result: list[tuple[int, str]] = []
@@ -251,11 +253,6 @@ def _airport_occurrences(text: str) -> list[tuple[int, str]]:
 
 
 def _resolve_buenos_aires(origin: str, destination: str) -> tuple[str, str, list[str]]:
-    """Resolve generic Buenos Aires city reference without forcing the wrong airport.
-
-    For an all-Argentina trip, prefer AEP. For an international trip, prefer EZE.
-    Explicit AEP/EZE in the user's text are never changed.
-    """
     assumptions: list[str] = []
     if origin != "BUE" and destination != "BUE":
         return origin, destination, assumptions
@@ -266,6 +263,7 @@ def _resolve_buenos_aires(origin: str, destination: str) -> tuple[str, str, list
         origin = resolved
     if destination == "BUE":
         destination = resolved
+
     assumptions.append(
         f"'Buenos Aires' interpretado como {resolved} "
         f"({'tramo doméstico argentino' if resolved == 'AEP' else 'tramo internacional'})."
@@ -291,13 +289,11 @@ def _parse_dates(text: str, today: date) -> tuple[date | None, date | None, list
     folded = _fold(text)
     assumptions: list[str] = []
 
-    # ISO YYYY-MM-DD
     iso = re.findall(r"\b(20\d{2})-(\d{2})-(\d{2})\b", folded)
     if iso:
         values = [date(int(y), int(m), int(d)) for y, m, d in iso[:2]]
         return values[0], values[1] if len(values) > 1 else None, assumptions
 
-    # DD/MM[/YYYY]
     numeric = re.findall(r"\b(\d{1,2})[/-](\d{1,2})(?:[/-](20\d{2}))?\b", folded)
     if numeric:
         values = []
@@ -308,10 +304,11 @@ def _parse_dates(text: str, today: date) -> tuple[date | None, date | None, list
             values.append(date(year, int(m), int(d)))
         return values[0], values[1] if len(values) > 1 else None, assumptions
 
-    # "19 al 30 de septiembre [de 2026]"
     month_names = "|".join(sorted((_fold(k) for k in MONTHS), key=len, reverse=True))
+
     range_match = re.search(
-        rf"\b(\d{{1,2}})\s*(?:al|a|hasta|-)\s*(\d{{1,2}})\s+de\s+({month_names})(?:\s+(?:de\s+)?(20\d{{2}}))?",
+        rf"\b(\d{{1,2}})\s*(?:al|a|hasta|-)\s*(\d{{1,2}})\s+de\s+"
+        rf"({month_names})(?:\s+(?:de\s+)?(20\d{{2}}))?",
         folded,
     )
     if range_match:
@@ -323,7 +320,6 @@ def _parse_dates(text: str, today: date) -> tuple[date | None, date | None, list
             assumptions.append(f"Año inferido: {year}.")
         return date(year, month, int(d1)), date(year, month, int(d2)), assumptions
 
-    # "19 de septiembre [de 2026]" (take first two if present)
     singles = list(re.finditer(
         rf"\b(\d{{1,2}})\s+de\s+({month_names})(?:\s+(?:de\s+)?(20\d{{2}}))?",
         folded,
@@ -343,8 +339,35 @@ def _parse_dates(text: str, today: date) -> tuple[date | None, date | None, list
     return None, None, assumptions
 
 
+def _location_spans_for_carrier_detection(folded: str) -> list[tuple[int, int]]:
+    location_index, _explicit_codes = _location_reference_index()
+    words = set(re.findall(r"[a-z0-9]+", folded))
+    spans: list[tuple[int, int]] = []
+
+    candidates: list[str] = []
+    for word in words:
+        candidates.extend(
+            alias
+            for alias, _code in location_index.get(word, ())
+            if len(alias) >= 4
+        )
+
+    for alias in sorted(set(candidates), key=len, reverse=True):
+        if alias not in folded:
+            continue
+        for match in re.finditer(
+            rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])",
+            folded,
+        ):
+            spans.append((match.start(), match.end()))
+
+    return spans
+
+
 def _carrier_sets(text: str) -> tuple[list[str], list[str]]:
     folded = _fold(text)
+    words = set(re.findall(r"[a-z0-9]+", folded))
+
     excluded: set[str] = set()
     included: set[str] = set()
 
@@ -356,47 +379,68 @@ def _carrier_sets(text: str) -> tuple[list[str], list[str]]:
         r")\s+[^,;]{0,32}$"
     )
 
-    aliases: dict[str, str] = {}
-    explicit_codes: set[str] = {
-        "AA", "AR", "LA", "G3", "IB", "UA", "DL", "AV", "CM", "LH", "AF", "KL"
-    }
+    # Evita colisiones como Buenos Aires -> Aires -> 4C.
+    location_spans = _location_spans_for_carrier_detection(folded)
 
-    for alias, code in CARRIER_ALIASES.items():
-        if alias.upper() == code and len(alias) <= 3:
-            explicit_codes.add(code)
+    airline_index, explicit_codes_tuple = _airline_reference_index()
+    explicit_codes = set(explicit_codes_tuple)
+
+    candidates: list[tuple[str, str]] = []
+    for word in words:
+        candidates.extend(airline_index.get(word, ()))
+    candidates.sort(key=lambda item: len(item[0]), reverse=True)
+
+    for needle, code in candidates:
+        if len(needle) < 3 or needle not in folded:
             continue
-        aliases[alias] = code
 
-    try:
-        for rec in get_reference_repository().alias_records("airline"):
-            alias, code = rec["alias"], rec["code"]
-            if alias.upper() == code and len(alias) <= 3:
-                explicit_codes.add(code)
-                continue
-            aliases.setdefault(alias, code)
-    except Exception:
-        pass
-
-    for alias, code in aliases.items():
-        needle = _fold(alias)
-        if len(needle) < 3:
-            continue
         for match in re.finditer(
             rf"(?<![a-z0-9]){re.escape(needle)}(?![a-z0-9])",
             folded,
         ):
+            if any(
+                match.start() >= start and match.end() <= end
+                for start, end in location_spans
+            ):
+                continue
+
             before = folded[max(0, match.start() - 56):match.start()]
             if exclusion_prefix.search(before):
                 excluded.add(code)
             else:
                 included.add(code)
 
-    for code in explicit_codes:
+    # Sólo inspeccionamos tokens cortos realmente presentes en el prompt.
+    explicit_tokens = {
+        match.group(0)
         for match in re.finditer(
-            rf"(?<![A-Za-z0-9]){re.escape(code)}(?![A-Za-z0-9])",
+            r"(?<![A-Za-z0-9])[A-Za-z0-9]{2,3}(?![A-Za-z0-9])",
+            text,
+        )
+    }
+
+    for token in explicit_tokens:
+        code = token.upper()
+
+        if code not in explicit_codes:
+            continue
+
+        # Nunca aceptar designadores puramente numéricos:
+        # "20 de diciembre" no puede ser una aerolínea.
+        if not any(ch.isalpha() for ch in code):
+            continue
+
+        # Para códigos sólo alfabéticos mantenemos la regla de mayúsculas
+        # explícitas: AA sí, "aa" no. Los alfanuméricos como G3 sí sirven.
+        if code.isalpha() and token != token.upper():
+            continue
+
+        for match in re.finditer(
+            rf"(?<![A-Za-z0-9]){re.escape(token)}(?![A-Za-z0-9])",
             text,
         ):
             before = _fold(text[max(0, match.start() - 56):match.start()])
+
             if exclusion_prefix.search(before):
                 excluded.add(code)
             else:
@@ -417,15 +461,21 @@ def _carrier_sets(text: str) -> tuple[list[str], list[str]]:
 def _passengers(text: str) -> tuple[list[PassengerSpec], list[str]]:
     folded = _fold(text)
     warnings: list[str] = []
+
     number = r"(\d+|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve)"
 
     adults = 1
-    adult_match = re.search(rf"\b{number}\s+(adulto|adultos|adult|adults)\b", folded)
+    adult_match = re.search(
+        rf"\b{number}\s+(adulto|adultos|adult|adults)\b",
+        folded,
+    )
+
     if adult_match:
         adults = _number_value(adult_match.group(1)) or 1
     else:
         people_match = re.search(
-            rf"\b(?:para\s+)?{number}\s+(persona|personas|pasajero|pasajeros|pax)\b",
+            rf"\b(?:para\s+)?{number}\s+"
+            r"(persona|personas|pasajero|pasajeros|pax)\b",
             folded,
         )
         if people_match:
@@ -435,8 +485,8 @@ def _passengers(text: str) -> tuple[list[PassengerSpec], list[str]]:
         PassengerSpec(type=PassengerKind.ADULT, quantity=adults)
     ]
 
-    # Child ages are preserved individually because Sabre pricing can use Cxx.
     age_hits: list[tuple[int, int]] = []
+
     for match in re.finditer(
         r"\b(?:nino|nina|ninos|ninas|chico|chica|chicos|chicas|menor|menores)"
         r"\s+(?:de\s+)?(\d{1,2})\b",
@@ -444,26 +494,31 @@ def _passengers(text: str) -> tuple[list[PassengerSpec], list[str]]:
     ):
         age_hits.append((match.start(1), int(match.group(1))))
 
-    # "niños de 9 y 4"
     for match in re.finditer(
-        r"\b(?:ninos|ninas|chicos|chicas|menores)\s+de\s+\d{1,2}\s+y\s+(\d{1,2})\b",
+        r"\b(?:ninos|ninas|chicos|chicas|menores)\s+de\s+"
+        r"\d{1,2}\s+y\s+(\d{1,2})\b",
         folded,
     ):
         age_hits.append((match.start(1), int(match.group(1))))
 
-    # "un niño de 9 y otro de 4"
-    for match in re.finditer(r"\b(?:otro|otra)\s+de\s+(\d{1,2})\b", folded):
+    for match in re.finditer(
+        r"\b(?:otro|otra)\s+de\s+(\d{1,2})\b",
+        folded,
+    ):
         age_hits.append((match.start(1), int(match.group(1))))
 
-    # Same textual position can be matched by two patterns; keep it once.
     child_ages = [
-        age for _pos, age in sorted(dict(age_hits).items())
+        age for _position, age in sorted(dict(age_hits).items())
     ]
 
     for age in child_ages:
         if 2 <= age <= 11:
             passengers.append(
-                PassengerSpec(type=PassengerKind.CHILD, age=age, quantity=1)
+                PassengerSpec(
+                    type=PassengerKind.CHILD,
+                    age=age,
+                    quantity=1,
+                )
             )
         elif age >= 12:
             passengers[0].quantity += 1
@@ -472,16 +527,23 @@ def _passengers(text: str) -> tuple[list[PassengerSpec], list[str]]:
             )
         else:
             passengers.append(
-                PassengerSpec(type=PassengerKind.INFANT, age=age, quantity=1)
+                PassengerSpec(
+                    type=PassengerKind.INFANT,
+                    age=age,
+                    quantity=1,
+                )
             )
             warnings.append(
                 f"Pasajero de {age} año(s) tratado como INF; se asume sin asiento."
             )
 
     generic_child_match = re.search(
-        rf"\b{number}\s+(nino|ninos|nina|ninas|chico|chicos|chica|chicas|menor|menores|child|children)\b",
+        rf"\b{number}\s+"
+        r"(nino|ninos|nina|ninas|chico|chicos|chica|chicas|"
+        r"menor|menores|child|children)\b",
         folded,
     )
+
     if generic_child_match and not child_ages:
         qty = _number_value(generic_child_match.group(1)) or 1
         raise ValueError(
@@ -493,30 +555,47 @@ def _passengers(text: str) -> tuple[list[PassengerSpec], list[str]]:
         rf"\b{number}\s+(infante|infantes|bebe|bebes|infant|infants)\b",
         folded,
     )
+
     if infant_match:
         qty = _number_value(infant_match.group(1)) or 1
-        passengers.append(PassengerSpec(type=PassengerKind.INFANT, quantity=qty))
+        passengers.append(
+            PassengerSpec(
+                type=PassengerKind.INFANT,
+                quantity=qty,
+            )
+        )
 
     return passengers, warnings
 
 
-def parse_agent_quote(request: AgentQuoteRequest, *, today: date | None = None) -> AgentInterpretation:
+def parse_agent_quote(
+    request: AgentQuoteRequest,
+    *,
+    today: date | None = None,
+) -> AgentInterpretation:
     today = today or date.today()
     text = request.text.strip()
     folded = _fold(text)
+
     assumptions: list[str] = []
     warnings: list[str] = []
 
     airports = _airport_occurrences(text)
     if len(airports) < 2:
         raise ValueError("No pude identificar con certeza origen y destino.")
+
     origin = airports[0][1]
     destination = airports[1][1]
-    origin, destination, bue_assumptions = _resolve_buenos_aires(origin, destination)
+
+    origin, destination, bue_assumptions = _resolve_buenos_aires(
+        origin,
+        destination,
+    )
     assumptions.extend(bue_assumptions)
 
     departure, return_date, date_assumptions = _parse_dates(text, today)
     assumptions.extend(date_assumptions)
+
     if departure is None:
         raise ValueError("No pude identificar la fecha de salida.")
 
@@ -525,11 +604,15 @@ def parse_agent_quote(request: AgentQuoteRequest, *, today: date | None = None) 
     warnings.extend(passenger_warnings)
 
     direct = bool(re.search(
-        r"\b(directo|directos|directa|directas|nonstop|non-stop|sin escalas?|sin conexiones?|vuelo directo|vuelos directos)\b",
+        r"\b(directo|directos|directa|directas|nonstop|non-stop|"
+        r"sin escalas?|sin conexiones?|vuelo directo|vuelos directos)\b",
         folded,
     ))
 
-    if re.search(r"\b(ambas monedas|usd\s+y\s+ars|ars\s+y\s+usd)\b", folded):
+    if re.search(
+        r"\b(ambas monedas|usd\s+y\s+ars|ars\s+y\s+usd)\b",
+        folded,
+    ):
         currency = PricingCurrency.BOTH
     elif re.search(r"\b(ars|pesos?|mars)\b", folded):
         currency = PricingCurrency.ARS
@@ -537,58 +620,72 @@ def parse_agent_quote(request: AgentQuoteRequest, *, today: date | None = None) 
         currency = PricingCurrency.USD
     else:
         currency = PricingCurrency.AUTO
-        assumptions.append("Moneda AUTO: USD internacional / ARS doméstico Argentina.")
+        assumptions.append(
+            "Moneda AUTO: USD internacional / ARS doméstico Argentina."
+        )
 
     if re.search(
-        r"\b("
-        r"con devolucion|con reembolso|"
-        r"devolucion permitida|devoluciones permitidas|"
-        r"reembolso permitido|reembolsable|refundable"
-        r")\b",
+        r"\b(con devolucion|con reembolso|devolucion permitida|"
+        r"devoluciones permitidas|reembolso permitido|reembolsable|refundable)\b",
         folded,
     ):
         fare_preference = FarePreference.REFUNDABLE
     elif re.search(
-        r"\b(con valija|con valijas|con equipaje|con equipaje despachado|incluya equipaje|incluya valija|incluya valijas|baggage)\b",
+        r"\b(con valija|con valijas|con equipaje|con equipaje despachado|"
+        r"incluya equipaje|incluya valija|incluya valijas|baggage)\b",
         folded,
     ):
         fare_preference = FarePreference.BAGGAGE
-    elif re.search(r"\b(branded|familias tarifarias|marcas tarifarias)\b", folded):
+    elif re.search(
+        r"\b(branded|familias tarifarias|marcas tarifarias)\b",
+        folded,
+    ):
         fare_preference = FarePreference.BRANDED
     else:
         fare_preference = FarePreference.AUTO
 
-    # Cabin intent.
-    # If no cabin is named, the agent intentionally shops Economy + Premium Economy + Business.
     cabin_patterns = [
         (Cabin.FIRST, r"\b(first|primera clase)\b"),
-        (Cabin.PREMIUM_ECONOMY, r"\b(premium economy|premium econom[yia]|economy premium)\b"),
+        (
+            Cabin.PREMIUM_ECONOMY,
+            r"\b(premium economy|premium econom[yia]|economy premium)\b",
+        ),
         (Cabin.BUSINESS, r"\b(business|ejecutiva)\b"),
         (Cabin.ECONOMY, r"\b(economy|economica|economy class)\b"),
     ]
 
     mentioned_cabins: list[Cabin] = []
+
     premium_pattern = r"\b(premium economy|premium econom[yia]|economy premium)\b"
     folded_without_premium = re.sub(premium_pattern, " ", folded)
 
     for candidate, pattern in cabin_patterns:
-        haystack = folded_without_premium if candidate == Cabin.ECONOMY else folded
+        haystack = (
+            folded_without_premium
+            if candidate == Cabin.ECONOMY
+            else folded
+        )
+
         if re.search(pattern, haystack) and candidate not in mentioned_cabins:
             mentioned_cabins.append(candidate)
 
-    outbound_cabin: Cabin | None = None
-    return_cabin: Cabin | None = None
-
     def _cabin_after(prefix_pattern: str) -> Cabin | None:
         for candidate, pattern in cabin_patterns:
-            if re.search(rf"\b(?:{prefix_pattern})\b[^,;.]*?{pattern}", folded):
+            if re.search(
+                rf"\b(?:{prefix_pattern})\b[^,;.]*?{pattern}",
+                folded,
+            ):
                 return candidate
         return None
 
     outbound_cabin = _cabin_after(r"ida|salida|outbound")
     return_cabin = _cabin_after(r"vuelta|regreso|return")
 
-    if outbound_cabin and return_cabin and outbound_cabin != return_cabin:
+    if (
+        outbound_cabin
+        and return_cabin
+        and outbound_cabin != return_cabin
+    ):
         cabins = [outbound_cabin, return_cabin]
         cabin = outbound_cabin
         warnings.append(
@@ -598,32 +695,46 @@ def parse_agent_quote(request: AgentQuoteRequest, *, today: date | None = None) 
             "cotización mixta para evitar mostrar una tarifa incorrecta."
         )
     elif mentioned_cabins:
-        # Preserve a useful commercial order in the response.
         commercial_order = [
             Cabin.ECONOMY,
             Cabin.PREMIUM_ECONOMY,
             Cabin.BUSINESS,
             Cabin.FIRST,
         ]
-        cabins = [item for item in commercial_order if item in mentioned_cabins]
+        cabins = [
+            item
+            for item in commercial_order
+            if item in mentioned_cabins
+        ]
         cabin = cabins[0]
     else:
-        cabins = [Cabin.ECONOMY, Cabin.PREMIUM_ECONOMY, Cabin.BUSINESS]
+        cabins = [
+            Cabin.ECONOMY,
+            Cabin.PREMIUM_ECONOMY,
+            Cabin.BUSINESS,
+        ]
         cabin = Cabin.ECONOMY
         assumptions.append(
             "No se indicó cabina: se cotizan Economy, Premium Economy y Business."
         )
 
     max_options = request.max_options or 5
-    option_match = re.search(r"\b(?:mostra(?:me)?|pasame|dame)?\s*(\d+)\s+(?:opciones|alternativas)\b", folded)
+
+    option_match = re.search(
+        r"\b(?:mostra(?:me)?|pasame|dame)?\s*(\d+)\s+"
+        r"(?:opciones|alternativas)\b",
+        folded,
+    )
     if option_match:
         max_options = min(50, max(1, int(option_match.group(1))))
 
     business_companion = False
 
-    # Keep the agent interpretation aligned with the pricing engine:
-    # domestic Argentina is always priced in ARS.
-    argentina_domestic = origin in ARGENTINA_AIRPORTS and destination in ARGENTINA_AIRPORTS
+    argentina_domestic = (
+        origin in ARGENTINA_AIRPORTS
+        and destination in ARGENTINA_AIRPORTS
+    )
+
     if argentina_domestic:
         if currency in {PricingCurrency.USD, PricingCurrency.BOTH}:
             warnings.append(
@@ -631,7 +742,9 @@ def parse_agent_quote(request: AgentQuoteRequest, *, today: date | None = None) 
                 "se cotizan obligatoriamente en ARS."
             )
         else:
-            assumptions.append("Vuelo doméstico Argentina: moneda ARS obligatoria.")
+            assumptions.append(
+                "Vuelo doméstico Argentina: moneda ARS obligatoria."
+            )
         currency = PricingCurrency.ARS
 
     confidence = 0.55
@@ -644,8 +757,9 @@ def parse_agent_quote(request: AgentQuoteRequest, *, today: date | None = None) 
 
     if len(airports) > 2:
         warnings.append(
-            "Detecté más de dos aeropuertos; esta versión interpreta los dos primeros como origen/destino. "
-            "Para open jaw/circle trip conviene usar /quotes/search estructurado por ahora."
+            "Detecté más de dos aeropuertos; esta versión interpreta los dos primeros "
+            "como origen/destino. Para open jaw/circle trip conviene usar "
+            "/quotes/search estructurado por ahora."
         )
 
     search_request = QuoteSearchAPIRequest(
@@ -655,9 +769,21 @@ def parse_agent_quote(request: AgentQuoteRequest, *, today: date | None = None) 
         departure_date=departure,
         return_date=return_date,
         passengers=passengers,
-        adults=sum(p.quantity for p in passengers if p.type == PassengerKind.ADULT),
-        children=sum(p.quantity for p in passengers if p.type == PassengerKind.CHILD),
-        infants=sum(p.quantity for p in passengers if p.type == PassengerKind.INFANT),
+        adults=sum(
+            p.quantity
+            for p in passengers
+            if p.type == PassengerKind.ADULT
+        ),
+        children=sum(
+            p.quantity
+            for p in passengers
+            if p.type == PassengerKind.CHILD
+        ),
+        infants=sum(
+            p.quantity
+            for p in passengers
+            if p.type == PassengerKind.INFANT
+        ),
         cabin=cabin,
         cabins=cabins,
         outbound_cabin=outbound_cabin,
