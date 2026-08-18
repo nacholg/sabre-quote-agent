@@ -88,15 +88,32 @@ def _constraint_window(
 
     if constraint.time_from is None and constraint.time_to is None:
         return (
-            datetime.combine(anchor_date, time.min),
-            datetime.combine(anchor_date, time.max),
+            datetime.combine(
+                anchor_date,
+                time.min,
+                tzinfo=actual.tzinfo,
+            ),
+            datetime.combine(
+                anchor_date,
+                time.max,
+                tzinfo=actual.tzinfo,
+            ),
         )
 
     start_time = constraint.time_from or time.min
     end_time = constraint.time_to or time.max
 
-    start = datetime.combine(anchor_date, start_time)
-    end = datetime.combine(anchor_date, end_time)
+    start = datetime.combine(
+    anchor_date,
+    start_time,
+    tzinfo=actual.tzinfo,
+    )
+
+    end = datetime.combine(
+        anchor_date,
+        end_time,
+        tzinfo=actual.tzinfo,
+    )
 
     if constraint.wraps_midnight or end < start:
         end += timedelta(days=1)

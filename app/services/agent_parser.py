@@ -85,6 +85,7 @@ ARGENTINA_AIRPORTS = {
 UNSAFE_LOCATION_TOKENS = {
     "the", "and", "for", "con", "sin", "del", "por", "via",
     "ida", "dos", "una", "uno", "las", "los", "san",
+    "ana",
 }
 
 
@@ -226,6 +227,20 @@ def _airport_occurrences(text: str) -> list[tuple[int, str]]:
     folded = _fold(text)
     found: list[tuple[int, str]] = []
     occupied: list[tuple[int, int]] = []
+    temporal_phrases = (
+        "manana",
+        "madrugada",
+        "mediodia",
+        "tarde",
+        "noche",
+    )
+
+    for phrase in temporal_phrases:
+        for match in re.finditer(
+            rf"(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])",
+            folded,
+        ):
+            occupied.append((match.start(), match.end()))
 
     for route_match in re.finditer(
         r"(?<![A-Za-z0-9])([A-Za-z]{3})\s*[-/]\s*([A-Za-z]{3})(?![A-Za-z0-9])",
@@ -799,11 +814,15 @@ def parse_agent_quote(
     confidence += 0.05 if carriers or excluded else 0
     confidence = min(confidence, 0.98)
 
-    if len(airports) > 2:
+    unique_airport_codes = list(
+        dict.fromkeys(code for _position, code in airports)
+    )
+
+    if len(unique_airport_codes) > 2:
         warnings.append(
-            "Detecté más de dos aeropuertos; esta versión interpreta los dos primeros "
-            "como origen/destino. Para open jaw/circle trip conviene usar "
-            "/quotes/search estructurado por ahora."
+            "Detecté más de dos aeropuertos distintos; esta versión interpreta los "
+            "dos primeros como origen/destino. Para open jaw/circle trip conviene "
+            "usar /quotes/search estructurado por ahora."
         )
 
     search_request = QuoteSearchAPIRequest(

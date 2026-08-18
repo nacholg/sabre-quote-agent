@@ -77,3 +77,24 @@ def test_night_window_crosses_midnight():
     assert c.wraps_midnight is True
     assert c.time_from == time(19, 0)
     assert c.time_to == time(2, 59)
+
+
+def test_repeated_route_locations_do_not_trigger_open_jaw_warning():
+    parsed = parse_agent_quote(
+        AgentQuoteRequest(
+            text=(
+                "Cotizar vuelos que lleguen a Miami desde Buenos Aires "
+                "el 11 de febrero a la mañana, con regreso a Buenos Aires "
+                "el 20 de febrero por la noche, llegando el 21 de febrero."
+            ),
+            execute=False,
+        ),
+        today=TODAY,
+    )
+
+    assert parsed.search_request.origin == "EZE"
+    assert parsed.search_request.destination == "MIA"
+    assert not any(
+        "más de dos aeropuertos" in warning
+        for warning in parsed.warnings
+    )
