@@ -392,6 +392,12 @@ def _carrier_sets(text: str) -> tuple[list[str], list[str]]:
                 included.add(code)
 
     for code in explicit_codes:
+        # Algunos catálogos externos contienen designadores numéricos.
+        # No deben confundirse con días, cantidades o años del prompt.
+        # Sí permitimos códigos alfanuméricos reales como G3, 5J, 6E, etc.
+        if not any(ch.isalpha() for ch in code):
+            continue
+
         for match in re.finditer(
             rf"(?<![A-Za-z0-9]){re.escape(code)}(?![A-Za-z0-9])",
             text,
