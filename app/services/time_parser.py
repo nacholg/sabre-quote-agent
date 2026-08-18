@@ -301,22 +301,23 @@ def parse_time_constraints(text: str, *, today: date):
             after,
         )
 
+        arrival_cue = bool(
+            re.search(
+                r"\b(lleguen|llegar|llegando|llegada)\b",
+                before,
+            )
+        )
         temporal_cue = bool(
             match.group(4)
             or explicit_from is not None
             or explicit_to is not None
-            or temporal_event_pattern.search(
-                before + " " + after[:80]
-            )
+            or arrival_cue
         )
 
         if temporal_cue:
             event = (
                 TimeEvent.ARRIVAL
-                if re.search(
-                    r"\b(lleguen|llegar|llegando|llegada)\b",
-                    before,
-                )
+                if arrival_cue
                 else TimeEvent.DEPARTURE
             )
 
