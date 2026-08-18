@@ -4,6 +4,7 @@ import re
 import unicodedata
 from datetime import date
 from typing import Iterable
+from functools import lru_cache
 
 from app.models.api import AgentInterpretation, AgentQuoteRequest, QuoteSearchAPIRequest
 from app.models.quote_request import Cabin, FarePreference, PassengerKind, PassengerSpec
@@ -343,33 +344,75 @@ def _parse_dates(text: str, today: date) -> tuple[date | None, date | None, list
     return None, None, assumptions
 
 
-def _carrier_sets(text: str) -> tuple[list[str], list[str]]:
-    folded = _fold(text)
-
-    # Posiciones ocupadas por nombres de aeropuertos/ciudades.
-    # Evita interpretar partes de una ciudad como una aerolínea:
-    # "Buenos Aires" -> no tomar "Aires" como carrier 4C.
-    location_spans: list[tuple[int, int]] = []
+@lru_cache(maxsize=1)
+def _cached_location_aliases() -> tuple[str, ...]:
+    aliases: set[str] = set()
 
     try:
         repo = get_reference_repository()
 
-        location_aliases: list[str] = []
         for entity_type in ("airport", "city"):
             for rec in repo.alias_records(entity_type):
                 alias = _fold(rec["alias"])
-                if len(alias) >= 4:
-                    location_aliases.append(alias)
 
-        for alias in sorted(set(location_aliases), key=len, reverse=True):
-            for match in re.finditer(
-                rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])",
-                folded,
-            ):
-                location_spans.append((match.start(), match.end()))
+                if len(alias) >= 4:
+                    aliases.add(alias)
 
     except Exception:
         pass
+
+    return tuple(sorted(aliases, key=len, reverse=True))
+
+
+@lru_cache(maxsize=1)
+def _cached_airline_reference_data() -> tuple[
+    tuple[tuple[str, str], ...],
+    tuple[str, ...],
+]:
+    aliases: dict[str, str] = {}
+    explicit_codes: set[str] = set()
+
+    try:
+        repo = get_reference_repository()
+
+        for rec in repo.alias_records("airline"):
+            alias = rec["alias"]
+            code = rec["code"]
+
+            if alias.upper() == code and len(alias) <= 3:
+                explicit_codes.add(code)
+                continue
+
+            aliases.setdefault(alias, code)
+
+    except Exception:
+        pass
+
+    return (
+        tuple(aliases.items()),
+        tuple(sorted(explicit_codes)),
+    )
+
+def _carrier_sets(text: str) -> tuple[list[str], list[str]]:
+    folded = _fold(text)
+
+    location_spans: list[tuple[int, int]] = []
+
+    # Los aliases ya están cacheados.
+    for alias in _cached_location_aliases():
+
+        # Esta línea es clave:
+        # no construimos/ejecutamos regex si el alias ni siquiera aparece.
+        if alias not in folded:
+            continue
+
+        for match in re.finditer(
+            rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])",
+            folded,
+        ):
+            location_spans.append(
+                (match.start(), match.end())
+            )
 
     excluded: set[str] = set()
     included: set[str] = set()
@@ -407,49 +450,43 @@ def _carrier_sets(text: str) -> tuple[list[str], list[str]]:
 
         aliases[alias] = code
 
-    # Aliases provenientes de reference.db.
-    try:
-        repo = get_reference_repository()
+    # Reference DB ya cacheado.
+    reference_aliases, reference_codes = (
+        _cached_airline_reference_data()
+    )
 
-        for rec in repo.alias_records("airline"):
-            alias = rec["alias"]
-            code = rec["code"]
+    explicit_codes.update(reference_codes)
 
-            if alias.upper() == code and len(alias) <= 3:
-                explicit_codes.add(code)
-                continue
+    for alias, code in reference_aliases:
+        aliases.setdefault(alias, code)
 
-            aliases.setdefault(alias, code)
-
-    except Exception:
-        pass
-
-    # Nombres/aliases naturales de aerolíneas.
+    # Aliases naturales.
     for alias, code in aliases.items():
         needle = _fold(alias)
 
         if len(needle) < 3:
             continue
 
+        # Muy importante para performance:
+        # sólo hacemos regex para aliases presentes en el prompt.
+        if needle not in folded:
+            continue
+
         for match in re.finditer(
             rf"(?<![a-z0-9]){re.escape(needle)}(?![a-z0-9])",
             folded,
         ):
-            # Si la coincidencia está completamente contenida dentro
-            # de un nombre de ciudad/aeropuerto reconocido, ignorarla.
-            #
-            # Ejemplo:
-            # "Buenos Aires"
-            #          ^^^^^
-            # "Aires" no debe interpretarse como airline 4C.
+            # No interpretar una parte de una ubicación como carrier.
             if any(
-                match.start() >= start and match.end() <= end
+                match.start() >= start
+                and match.end() <= end
                 for start, end in location_spans
             ):
                 continue
 
             before = folded[
-                max(0, match.start() - 56) : match.start()
+                max(0, match.start() - 56):
+                match.start()
             ]
 
             if exclusion_prefix.search(before):
@@ -457,17 +494,16 @@ def _carrier_sets(text: str) -> tuple[list[str], list[str]]:
             else:
                 included.add(code)
 
-    # Códigos IATA explícitos de aerolínea.
+    # Códigos explícitos.
     for code in explicit_codes:
-        # Algunos catálogos externos contienen designadores
-        # puramente numéricos.
-        #
-        # No queremos:
-        # "20 de diciembre" -> airline "20"
-        #
-        # Sí queremos conservar códigos alfanuméricos reales:
-        # G3, 5J, 6E, etc.
+
+        # Evitar carriers puramente numéricos:
+        # "20 de diciembre" != airline "20".
         if not any(ch.isalpha() for ch in code):
+            continue
+
+        # Evitamos regex innecesaria.
+        if code not in text:
             continue
 
         for match in re.finditer(
@@ -476,7 +512,8 @@ def _carrier_sets(text: str) -> tuple[list[str], list[str]]:
         ):
             before = _fold(
                 text[
-                    max(0, match.start() - 56) : match.start()
+                    max(0, match.start() - 56):
+                    match.start()
                 ]
             )
 
@@ -485,10 +522,8 @@ def _carrier_sets(text: str) -> tuple[list[str], list[str]]:
             else:
                 included.add(code)
 
-    # Una exclusión siempre gana sobre una inclusión.
     included -= excluded
 
-    # "cualquier aerolínea", "todas las aerolíneas", etc.
     if re.search(
         r"\b(cualquier|cualquiera|todas?)\b.{0,24}"
         r"\b(aerolinea|aerolineas|compania|companias)\b",
@@ -497,7 +532,7 @@ def _carrier_sets(text: str) -> tuple[list[str], list[str]]:
         included.clear()
 
     return sorted(included), sorted(excluded)
-
+    
 def _passengers(text: str) -> tuple[list[PassengerSpec], list[str]]:
     folded = _fold(text)
     warnings: list[str] = []
