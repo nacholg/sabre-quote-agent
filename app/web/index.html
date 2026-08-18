@@ -102,6 +102,7 @@
         </div>
         <div id="quoteId" class="chip"></div>
       </div>
+      <div id="timeMatchStatus" class="hidden"></div>
       <div class="interpret" style="margin-top:14px">
         <input id="clientName" placeholder="Cliente" style="border:1px solid var(--line);border-radius:10px;padding:10px">
         <input id="clientReference" placeholder="Referencia / expediente" style="border:1px solid var(--line);border-radius:10px;padding:10px">
@@ -137,6 +138,46 @@ let currentQuoteId = null;
 function esc(v){return String(v ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c]));}
 function money(v,c){if(v===null||v===undefined)return ""; return `${c} ${Number(v).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`;}
 function fmtDateTime(v){try{const d=new Date(v); return d.toLocaleString("es-AR",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit",hour12:false});}catch{return v;}}
+
+function fmtConstraintDate(v){
+  if(!v)return "";
+  try{
+    const [y,m,d]=String(v).split("-").map(Number);
+    const dt=new Date(y,m-1,d);
+    return dt.toLocaleDateString("es-AR",{day:"2-digit",month:"short"}).replace(".","");
+  }catch{return v;}
+}
+
+function fmtTimeConstraint(c){
+  const leg=Number(c.leg_index||0)===0?"Ida":"Vuelta";
+  const event=c.event==="arrival"?"llegada":"salida";
+  const bits=[`${leg}: ${event}`];
+
+  if(c.date)bits.push(fmtConstraintDate(c.date));
+
+  const labels={
+    dawn:"madrugada",
+    morning:"mañana",
+    midday:"mediodía",
+    afternoon:"tarde",
+    night:"noche"
+  };
+
+  if(c.daypart)bits.push(labels[c.daypart]||c.daypart);
+  else if(c.label)bits.push(c.label);
+  else if(c.time_from||c.time_to){
+    if(c.time_from&&c.time_to){
+      bits.push(`${String(c.time_from).slice(0,5)}–${String(c.time_to).slice(0,5)}`);
+    }else if(c.time_from){
+      bits.push(`desde ${String(c.time_from).slice(0,5)}`);
+    }else{
+      bits.push(`hasta ${String(c.time_to).slice(0,5)}`);
+    }
+  }
+
+  if(c.mode==="preferred")bits.push("(preferido)");
+  return bits.join(" · ");
+}
 
 async function api(url, opts={}){
   const r = await fetch(url, opts);
@@ -241,6 +282,13 @@ function renderInterpretation(i){
     ["Cabinas",(req.cabins||[]).join(", ") || req.cabin || "—"],
     ["Tarifa",req.fare_preference||"auto"],
   ];
+
+  if(req.time_constraints?.length){
+    items.push([
+      "Horarios",
+      req.time_constraints.map(fmtTimeConstraint).join(" · ")
+    ]);
+  }
   let html=`<h3>Interpretación</h3><div class="interpret">${items.map(x=>`<div class="chip"><strong>${esc(x[0])}</strong><br>${esc(x[1])}</div>`).join("")}</div>`;
   if(i.assumptions?.length) html+=`<div class="status warn">${i.assumptions.map(esc).join("<br>")}</div>`;
   if(i.warnings?.length) html+=`<div class="status err">${i.warnings.map(esc).join("<br>")}</div>`;
@@ -277,6 +325,24 @@ function renderQuote(q){
   document.getElementById("quoteSection").classList.remove("hidden");
   document.getElementById("quoteId").textContent=q.quote_id||"";
   document.getElementById("quoteMeta").textContent=`${q.result_count} resultados normalizados · ${q.environment}`;
+
+  const timeMatchEl=document.getElementById("timeMatchStatus");
+  const tm=q.time_match||{status:"not_requested"};
+
+  if(tm.status==="fallback"){
+    const messages=(tm.messages||[]).length
+      ? tm.messages.map(esc).join("<br>")
+      : "No hubo opciones que cumplieran exactamente el horario solicitado. Se muestran las alternativas más cercanas.";
+    timeMatchEl.innerHTML=`<div class="status warn"><strong>Horarios: alternativas cercanas</strong><br>${messages}</div>`;
+    timeMatchEl.classList.remove("hidden");
+  }else if(tm.status==="exact"){
+    timeMatchEl.innerHTML=`<div class="status ok"><strong>Horarios solicitados:</strong> ${esc(tm.exact_match_count)} opción(es) cumplen las restricciones temporales.</div>`;
+    timeMatchEl.classList.remove("hidden");
+  }else{
+    timeMatchEl.innerHTML="";
+    timeMatchEl.classList.add("hidden");
+  }
+
   const options=q.options||[];
   document.getElementById("options").innerHTML=options.map(item=>{
     const it=item.itinerary;

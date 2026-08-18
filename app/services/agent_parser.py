@@ -11,6 +11,7 @@ from app.models.api import AgentInterpretation, AgentQuoteRequest, QuoteSearchAP
 from app.models.quote_request import Cabin, FarePreference, PassengerKind, PassengerSpec
 from app.services.pricing_rules import PricingCurrency
 from app.services.reference_repository import get_reference_repository
+from app.services.time_parser import parse_time_constraints
 
 
 AIRPORT_ALIASES = {
@@ -84,6 +85,7 @@ ARGENTINA_AIRPORTS = {
 UNSAFE_LOCATION_TOKENS = {
     "the", "and", "for", "con", "sin", "del", "por", "via",
     "ida", "dos", "una", "uno", "las", "los", "san",
+    "ana",
 }
 
 
@@ -225,6 +227,20 @@ def _airport_occurrences(text: str) -> list[tuple[int, str]]:
     folded = _fold(text)
     found: list[tuple[int, str]] = []
     occupied: list[tuple[int, int]] = []
+    temporal_phrases = (
+        "manana",
+        "madrugada",
+        "mediodia",
+        "tarde",
+        "noche",
+    )
+
+    for phrase in temporal_phrases:
+        for match in re.finditer(
+            rf"(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])",
+            folded,
+        ):
+            occupied.append((match.start(), match.end()))
 
     for route_match in re.finditer(
         r"(?<![A-Za-z0-9])([A-Za-z]{3})\s*[-/]\s*([A-Za-z]{3})(?![A-Za-z0-9])",
@@ -615,6 +631,10 @@ def parse_agent_quote(
     origin = airports[0][1]
     destination = airports[1][1]
 
+    # Arrival-led phrasing mentions destination before origin.
+    if re.search(r"\blleg(?:uen|ar|ando)?\s+a\b.*?\bdesde\b", folded):
+        origin, destination = destination, origin
+
     origin, destination, bue_assumptions = _resolve_buenos_aires(
         origin,
         destination,
@@ -623,6 +643,17 @@ def parse_agent_quote(
 
     departure, return_date, date_assumptions = _parse_dates(text, today)
     assumptions.extend(date_assumptions)
+
+    time_constraints, inferred_departure, inferred_return, time_assumptions = parse_time_constraints(
+        text,
+        today=today,
+    )
+    assumptions.extend(time_assumptions)
+
+    if inferred_departure is not None:
+        departure = inferred_departure
+    if inferred_return is not None:
+        return_date = inferred_return
 
     if departure is None:
         raise ValueError("No pude identificar la fecha de salida.")
@@ -783,11 +814,15 @@ def parse_agent_quote(
     confidence += 0.05 if carriers or excluded else 0
     confidence = min(confidence, 0.98)
 
-    if len(airports) > 2:
+    unique_airport_codes = list(
+        dict.fromkeys(code for _position, code in airports)
+    )
+
+    if len(unique_airport_codes) > 2:
         warnings.append(
-            "Detecté más de dos aeropuertos; esta versión interpreta los dos primeros "
-            "como origen/destino. Para open jaw/circle trip conviene usar "
-            "/quotes/search estructurado por ahora."
+            "Detecté más de dos aeropuertos distintos; esta versión interpreta los "
+            "dos primeros como origen/destino. Para open jaw/circle trip conviene "
+            "usar /quotes/search estructurado por ahora."
         )
 
     search_request = QuoteSearchAPIRequest(
@@ -824,6 +859,7 @@ def parse_agent_quote(
         excluded_carriers=excluded,
         fare_preference=fare_preference,
         business_companion=business_companion,
+        time_constraints=time_constraints,
     )
 
     return AgentInterpretation(

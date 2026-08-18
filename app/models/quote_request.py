@@ -1,4 +1,9 @@
 from datetime import date, time
+from typing import TypeAlias
+
+DateType: TypeAlias = date
+TimeType: TypeAlias = time
+
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -24,6 +29,42 @@ class TripType(StrEnum):
     OPEN_JAW = "open_jaw"
     CIRCLE_TRIP = "circle_trip"
     MULTI_CITY = "multi_city"
+
+
+class DayPart(StrEnum):
+    DAWN = "dawn"
+    MORNING = "morning"
+    MIDDAY = "midday"
+    AFTERNOON = "afternoon"
+    NIGHT = "night"
+
+
+class TimeEvent(StrEnum):
+    DEPARTURE = "departure"
+    ARRIVAL = "arrival"
+
+
+class TimeConstraintMode(StrEnum):
+    REQUIRED = "required"
+    PREFERRED = "preferred"
+
+
+class TimeConstraint(BaseModel):
+    leg_index: int = Field(ge=0, le=9)
+    event: TimeEvent
+    date: DateType | None = None
+    time_from: TimeType | None = None
+    time_to: TimeType | None = None
+    daypart: DayPart | None = None
+    mode: TimeConstraintMode = TimeConstraintMode.REQUIRED
+    wraps_midnight: bool = False
+    label: str | None = None
+
+    @model_validator(mode="after")
+    def validate_temporal_content(self) -> "TimeConstraint":
+        if self.date is None and self.time_from is None and self.time_to is None and self.daypart is None:
+            raise ValueError("TimeConstraint requiere fecha, horario o franja horaria.")
+        return self
 
 
 class FarePreference(StrEnum):
@@ -103,6 +144,7 @@ class QuoteSearchRequest(BaseModel):
     request_profile: RequestProfile = RequestProfile.STANDARD
     request_baggage: bool = True
     fare_preference: FarePreference = FarePreference.AUTO
+    time_constraints: list[TimeConstraint] = Field(default_factory=list)
 
     @field_validator("origin", "destination")
     @classmethod
