@@ -64,6 +64,7 @@ class BrandedComponent(BaseModel):
 
 class FareOption(BaseModel):
     cabin: str
+    cabin_codes: list[str] = Field(default_factory=list)
     currency: str
     price_per_passenger: Decimal
     total_price: Decimal | None = None

@@ -15,6 +15,88 @@ from app.services.fare_preference_filter import filter_refundable_itineraries
 from app.services.quote_repository import get_quote_repository
 
 
+
+_CABIN_TO_FARE_NAME = {
+    Cabin.ECONOMY: "economy",
+    Cabin.PREMIUM_ECONOMY: "premium economy",
+    Cabin.BUSINESS: "business",
+    Cabin.FIRST: "first",
+}
+
+_CABIN_TO_SABRE_CODE = {
+    Cabin.ECONOMY: "Y",
+    Cabin.PREMIUM_ECONOMY: "S",
+    Cabin.BUSINESS: "C",
+    Cabin.FIRST: "F",
+}
+
+
+def _fare_matches_requested_cabin(fare, cabin: Cabin) -> bool:
+    # Structured component cabin codes are authoritative when Sabre supplies them.
+    # A mixed pricing row is accepted only if all its components belong to the
+    # requested cabin. Brand names never participate in this classification.
+    expected_code = _CABIN_TO_SABRE_CODE[cabin]
+    structured_codes = {
+        code.upper()
+        for code in getattr(fare, "cabin_codes", [])
+        if code
+    }
+
+    if structured_codes:
+        return structured_codes == {expected_code}
+
+    return fare.cabin.strip().lower() == _CABIN_TO_FARE_NAME[cabin]
+
+
+def _filter_itineraries_to_cabin(options: list, cabin: Cabin) -> list:
+    filtered_options = []
+
+    for option in options:
+        copy = option.model_copy(deep=True)
+        filtered_by_currency = {}
+
+        for currency, fares in copy.fare_options_by_currency.items():
+            kept = [
+                fare
+                for fare in fares
+                if _fare_matches_requested_cabin(fare, cabin)
+            ]
+            if kept:
+                filtered_by_currency[currency] = kept
+
+        if not filtered_by_currency:
+            fallback_fares = {
+                copy.fare.currency: [copy.fare]
+            }
+            kept = [
+                fare
+                for fare in fallback_fares[copy.fare.currency]
+                if _fare_matches_requested_cabin(fare, cabin)
+            ]
+            if kept:
+                filtered_by_currency[copy.fare.currency] = kept
+
+        if not filtered_by_currency:
+            continue
+
+        copy.fare_options_by_currency = filtered_by_currency
+        copy.fares_by_currency = {
+            currency: fares[0]
+            for currency, fares in filtered_by_currency.items()
+        }
+
+        primary_currency = copy.fare.currency
+        if primary_currency in filtered_by_currency:
+            copy.fare = filtered_by_currency[primary_currency][0]
+        else:
+            first_currency = next(iter(filtered_by_currency))
+            copy.fare = filtered_by_currency[first_currency][0]
+
+        filtered_options.append(copy)
+
+    return filtered_options
+
+
 def _matches_preferred_carriers(option, carriers: list[str]) -> bool:
     allowed = {code.upper() for code in carriers}
     return bool(option.segments) and all(
@@ -108,9 +190,13 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
                 )
                 diagnostics = extract_bfm_diagnostics(raw)
                 normalized_primary = normalize_bfm_response(raw)
+                cabin_normalized = _filter_itineraries_to_cabin(
+                    normalized_primary,
+                    cabin,
+                )
 
                 cabin_options = _apply_excluded_carriers(
-                    normalized_primary,
+                    cabin_normalized,
                     search.excluded_carriers,
                 )
 
@@ -149,9 +235,13 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
                     )
                     broad_diagnostics = extract_bfm_diagnostics(broad_raw)
                     broad_normalized = normalize_bfm_response(broad_raw)
+                    broad_cabin_normalized = _filter_itineraries_to_cabin(
+                        broad_normalized,
+                        cabin,
+                    )
 
                     broad_filtered = _apply_excluded_carriers(
-                        broad_normalized,
+                        broad_cabin_normalized,
                         search.excluded_carriers,
                     )
 
