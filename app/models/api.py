@@ -7,7 +7,16 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 from app.models.itinerary import ItineraryOption
-from app.models.quote_request import Cabin, FarePreference, PassengerSpec, QuoteSearchRequest, RequestProfile, SearchLeg, TripType
+from app.models.quote_request import (
+    Cabin,
+    FarePreference,
+    PassengerSpec,
+    QuoteSearchRequest,
+    RequestProfile,
+    SearchLeg,
+    TimeConstraint,
+    TripType,
+)
 from app.services.pricing_rules import PricingCurrency
 from app.services.ranking import RankingMode
 
@@ -46,6 +55,7 @@ class QuoteSearchAPIRequest(BaseModel):
     sort: RankingMode = RankingMode.BALANCED
     request_profile: RequestProfile = RequestProfile.STANDARD
     business_companion: bool = True
+    time_constraints: list[TimeConstraint] = Field(default_factory=list)
     persist: bool = True
 
     @model_validator(mode="after")
@@ -148,6 +158,7 @@ class QuoteSearchAPIRequest(BaseModel):
             excluded_carriers=self.excluded_carriers,
             request_profile=self.request_profile,
             fare_preference=self.fare_preference,
+            time_constraints=self.time_constraints,
         )
 
 

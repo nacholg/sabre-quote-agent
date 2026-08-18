@@ -11,6 +11,7 @@ from app.models.api import AgentInterpretation, AgentQuoteRequest, QuoteSearchAP
 from app.models.quote_request import Cabin, FarePreference, PassengerKind, PassengerSpec
 from app.services.pricing_rules import PricingCurrency
 from app.services.reference_repository import get_reference_repository
+from app.services.time_parser import parse_time_constraints
 
 
 AIRPORT_ALIASES = {
@@ -615,6 +616,10 @@ def parse_agent_quote(
     origin = airports[0][1]
     destination = airports[1][1]
 
+    # Arrival-led phrasing mentions destination before origin.
+    if re.search(r"\blleg(?:uen|ar|ando)?\s+a\b.*?\bdesde\b", folded):
+        origin, destination = destination, origin
+
     origin, destination, bue_assumptions = _resolve_buenos_aires(
         origin,
         destination,
@@ -623,6 +628,17 @@ def parse_agent_quote(
 
     departure, return_date, date_assumptions = _parse_dates(text, today)
     assumptions.extend(date_assumptions)
+
+    time_constraints, inferred_departure, inferred_return, time_assumptions = parse_time_constraints(
+        text,
+        today=today,
+    )
+    assumptions.extend(time_assumptions)
+
+    if inferred_departure is not None:
+        departure = inferred_departure
+    if inferred_return is not None:
+        return_date = inferred_return
 
     if departure is None:
         raise ValueError("No pude identificar la fecha de salida.")
@@ -824,6 +840,7 @@ def parse_agent_quote(
         excluded_carriers=excluded,
         fare_preference=fare_preference,
         business_companion=business_companion,
+        time_constraints=time_constraints,
     )
 
     return AgentInterpretation(
