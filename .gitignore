@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Secrets / Sabre credentials
+.env
+.env.*
+!.env.example
+
+# Persistent local databases
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Runtime outputs
+output/
+logs/
+*.log
+
+# Generated support bundles
+*.zip
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak
+
+# SQLite databases anywhere
+*.db
+*.db-shm
+*.db-wal
+
+# Python package metadata
+*.egg-info/

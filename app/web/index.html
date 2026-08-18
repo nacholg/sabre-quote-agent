@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sabre Quote Agent</title>
+  <style>
+    :root {
+      --bg:#f5f7fb; --panel:#fff; --text:#18202a; --muted:#677383;
+      --line:#dfe5ec; --accent:#1f5eff; --accent2:#eaf0ff;
+      --ok:#137a4b; --warn:#a45a00; --danger:#b42318;
+      --shadow:0 10px 28px rgba(28,42,65,.08);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text)}
+    header{background:#101828;color:#fff;padding:18px 26px;display:flex;justify-content:space-between;align-items:center}
+    header h1{font-size:20px;margin:0}
+    header .badge{font-size:12px;background:#25334a;padding:6px 9px;border-radius:999px}
+    .layout{display:grid;grid-template-columns:280px minmax(0,1fr);min-height:calc(100vh - 62px)}
+    aside{border-right:1px solid var(--line);background:#fbfcfe;padding:18px;overflow:auto}
+    main{padding:24px;max-width:1250px;width:100%;margin:auto}
+    .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:18px;margin-bottom:18px}
+    .search-row{display:grid;grid-template-columns:1fr 120px 120px;gap:10px}
+    textarea{width:100%;min-height:92px;resize:vertical;border:1px solid var(--line);border-radius:10px;padding:12px;font:inherit}
+    select,button,input{font:inherit}
+    select{border:1px solid var(--line);border-radius:10px;padding:10px;background:white}
+    button{border:0;border-radius:10px;padding:10px 14px;cursor:pointer;font-weight:600}
+    .primary{background:var(--accent);color:white}
+    .secondary{background:var(--accent2);color:#1746b4}
+    .ghost{background:#f1f4f8;color:#344054}
+    .danger{background:#fff0ee;color:var(--danger)}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .muted{color:var(--muted);font-size:13px}
+    .interpret{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:12px}
+    .chip{background:#f7f9fc;border:1px solid var(--line);border-radius:9px;padding:9px 10px;font-size:13px}
+    .status{padding:9px 11px;border-radius:10px;margin-top:10px;font-size:13px}
+    .status.ok{background:#ecfdf3;color:var(--ok)}
+    .status.warn{background:#fff7e6;color:var(--warn)}
+    .status.err{background:#fff0ee;color:var(--danger)}
+    .option-card{border:1px solid var(--line);border-radius:13px;padding:16px;margin:12px 0;background:white}
+    .option-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+    .option-title{font-weight:750}
+    .flight{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;padding:6px 0}
+    .fares{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-top:12px}
+    .fare{border:1px solid var(--line);border-radius:10px;padding:12px;background:#fafcff}
+    .fare strong{display:block;margin-bottom:5px}
+    .price{font-size:18px;font-weight:800;margin:6px 0}
+    .actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:14px}
+    .history-item{border:1px solid var(--line);border-radius:10px;padding:10px;margin:8px 0;background:white;cursor:pointer}
+    .history-item:hover{border-color:#aab8ca}
+    .history-item strong{font-size:13px}
+    .history-item div{font-size:12px;color:var(--muted);margin-top:4px}
+    .preview{white-space:pre-wrap;background:#101828;color:#f9fafb;border-radius:12px;padding:16px;overflow:auto;max-height:520px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
+    iframe{width:100%;min-height:520px;border:1px solid var(--line);border-radius:12px;background:white}
+    .rule{font-size:12px;margin-top:4px}
+    .rule.high{color:var(--ok)} .rule.unknown{color:var(--warn)}
+    .hidden{display:none}
+    @media(max-width:900px){
+      .layout{grid-template-columns:1fr}
+      aside{border-right:0;border-bottom:1px solid var(--line)}
+      .search-row{grid-template-columns:1fr}
+    }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Sabre Quote Agent</h1>
+  <div class="badge">MVP 0.17 · Web UI</div>
+</header>
+
+<div class="layout">
+  <aside>
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <strong>Historial</strong>
+      <button class="ghost" onclick="loadHistory()">↻</button>
+    </div>
+    <div id="history" class="muted" style="margin-top:10px">Cargando…</div>
+  </aside>
+
+  <main>
+    <section class="panel">
+      <h2 style="margin-top:0">Nueva cotización</h2>
+      <div class="search-row">
+        <textarea id="prompt" placeholder="Ej.: Cotizame EZE-MIA del 19 al 30 de septiembre, 1 adulto, directo, AA, USD, branded"></textarea>
+        <select id="environment">
+          <option value="cert" selected>CERT</option>
+          <option value="prod">PROD</option>
+        </select>
+        <button id="searchBtn" class="primary" onclick="runQuote()">Buscar</button>
+      </div>
+      <div class="muted" style="margin-top:8px">La búsqueda usa /agent/quote y guarda la cotización automáticamente.</div>
+      <div id="searchStatus"></div>
+      <div id="interpretation" class="hidden"></div>
+    </section>
+
+    <section id="quoteSection" class="panel hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+        <div>
+          <h2 id="quoteTitle" style="margin:0">Resultados</h2>
+          <div id="quoteMeta" class="muted"></div>
+        </div>
+        <div id="quoteId" class="chip"></div>
+      </div>
+      <div class="interpret" style="margin-top:14px">
+        <input id="clientName" placeholder="Cliente" style="border:1px solid var(--line);border-radius:10px;padding:10px">
+        <input id="clientReference" placeholder="Referencia / expediente" style="border:1px solid var(--line);border-radius:10px;padding:10px">
+        <input id="quoteNotes" placeholder="Notas internas" style="border:1px solid var(--line);border-radius:10px;padding:10px">
+      </div>
+      <div id="options"></div>
+      <div class="actions">
+        <button class="primary" onclick="saveSelection()">Guardar selección</button>
+        <button class="secondary" onclick="saveWorkflow()">Guardar datos</button>
+        <button class="secondary" onclick="refreshQuote()">Refrescar / Reprice</button>
+        <button class="secondary" onclick="showWhatsApp()">WhatsApp</button>
+        <button class="secondary" onclick="showEmail()">Email</button>
+        <button class="ghost" onclick="auditRules()">Auditar reglas</button>
+        <button class="ghost" onclick="markSent()">Marcar enviada</button>
+        <button class="danger" onclick="clearSelection()">Limpiar selección</button>
+      </div>
+    </section>
+
+    <section id="previewSection" class="panel hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2 id="previewTitle" style="margin:0">Vista previa</h2>
+        <button class="ghost" onclick="hidePreview()">Cerrar</button>
+      </div>
+      <div id="previewBody" style="margin-top:14px"></div>
+    </section>
+  </main>
+</div>
+
+<script>
+let currentQuote = null;
+let currentQuoteId = null;
+
+function esc(v){return String(v ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c]));}
+function money(v,c){if(v===null||v===undefined)return ""; return `${c} ${Number(v).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`;}
+function fmtDateTime(v){try{const d=new Date(v); return d.toLocaleString("es-AR",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit",hour12:false});}catch{return v;}}
+
+async function api(url, opts={}){
+  const r = await fetch(url, opts);
+  const type = r.headers.get("content-type") || "";
+  const data = type.includes("application/json") ? await r.json() : await r.text();
+  if(!r.ok){
+    const detail = data?.detail || data || `HTTP ${r.status}`;
+    throw new Error(typeof detail==="string" ? detail : JSON.stringify(detail));
+  }
+  return data;
+}
+
+function setStatus(msg,type="ok"){
+  document.getElementById("searchStatus").innerHTML = `<div class="status ${type}">${esc(msg)}</div>`;
+}
+
+async function runQuote(){
+  const text=document.getElementById("prompt").value.trim();
+  if(!text){setStatus("Escribí un pedido de cotización.","warn");return;}
+  const btn=document.getElementById("searchBtn");
+  btn.disabled=true; setStatus("Consultando Sabre…","warn");
+  try{
+    const data=await api("/agent/quote",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({text,environment:document.getElementById("environment").value,execute:true})
+    });
+    renderInterpretation(data.interpretation);
+    currentQuote=data.quote;
+    currentQuoteId=data.quote?.quote_id || null;
+    if(data.quote){
+      renderQuote(data.quote);
+      setStatus(`Cotización creada: ${currentQuoteId}`,"ok");
+      await 
+async function saveWorkflow(status=null){
+  if(!currentQuoteId)return;
+  const body={
+    client_name:document.getElementById("clientName").value||null,
+    client_reference:document.getElementById("clientReference").value||null,
+    notes:document.getElementById("quoteNotes").value||null,
+    status
+  };
+  try{
+    const r=await api(`/quotes/${currentQuoteId}/workflow`,{
+      method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)
+    });
+    alert(`Cotización actualizada · ${r.status}`);
+    await loadHistory();
+  }catch(e){alert(e.message);}
+}
+
+async function markSent(){
+  await saveWorkflow("sent");
+}
+
+async function refreshQuote(){
+  if(!currentQuoteId)return;
+  try{
+    await saveWorkflow();
+    const r=await api(`/quotes/${currentQuoteId}/refresh`,{method:"POST"});
+    const rows=[];
+    for(const c of r.comparisons||[]){
+      if(c.itinerary_status==="unavailable"){
+        rows.push(`<div class="status err">Opción ${c.old_rank}: itinerario ya no disponible.</div>`);
+        continue;
+      }
+      const fares=(c.fare_changes||[]).map(f=>{
+        if(f.status==="unavailable") return `<div class="rule unknown">${esc(f.cabin)} ${esc(f.brand_name||"")}: ya no disponible</div>`;
+        const delta=Number(f.delta||0);
+        const sign=delta>0?"+":"";
+        return `<div class="rule ${f.status==="same"?"high":"unknown"}">${esc(f.cabin)} ${esc(f.brand_name||"")}: ${esc(money(f.old_price,f.currency))} → ${esc(money(f.new_price,f.currency))}${f.status==="changed"?` (${sign}${delta.toFixed(2)})`:""}</div>`;
+      }).join("");
+      rows.push(`<div class="fare"><strong>Opción ${c.old_rank} → nueva ${c.new_rank}</strong>${fares}</div>`);
+    }
+    document.getElementById("previewTitle").textContent="Refresh / Reprice";
+    document.getElementById("previewBody").innerHTML=`<div class="status ok">Nueva versión: ${esc(r.refreshed_quote_id)}</div><div class="fares">${rows.join("")}</div>`;
+    document.getElementById("previewSection").classList.remove("hidden");
+    await openQuote(r.refreshed_quote_id);
+    await loadHistory();
+  }catch(e){alert(e.message);}
+}
+
+loadHistory();
+    }else{
+      document.getElementById("quoteSection").classList.add("hidden");
+      setStatus("Pedido interpretado, pero no ejecutado: revisá las advertencias.", "warn");
+    }
+  }catch(e){setStatus(e.message,"err");}
+  finally{btn.disabled=false;}
+}
+
+function renderInterpretation(i){
+  const req=i.search_request || {};
+  const items=[
+    ["Ruta",`${req.origin||""} → ${req.destination||""}`],
+    ["Fechas",`${req.departure_date||""}${req.return_date?" / "+req.return_date:""}`],
+    ["Pasajeros",(req.passengers||[]).map(p=>`${p.type}${p.age!=null?" "+p.age:""} ×${p.quantity}`).join(", ") || `${req.adults||1} ADT`],
+    ["Directo",req.direct?"Sí":"No"],
+    ["Aerolíneas",(req.carriers||[]).join(", ")||"Cualquiera"],
+    ["Excluidas",(req.excluded_carriers||[]).join(", ")||"—"],
+    ["Moneda",req.currency||"AUTO"],
+    ["Cabinas",(req.cabins||[]).join(", ") || req.cabin || "—"],
+    ["Tarifa",req.fare_preference||"auto"],
+  ];
+  let html=`<h3>Interpretación</h3><div class="interpret">${items.map(x=>`<div class="chip"><strong>${esc(x[0])}</strong><br>${esc(x[1])}</div>`).join("")}</div>`;
+  if(i.assumptions?.length) html+=`<div class="status warn">${i.assumptions.map(esc).join("<br>")}</div>`;
+  if(i.warnings?.length) html+=`<div class="status err">${i.warnings.map(esc).join("<br>")}</div>`;
+  const el=document.getElementById("interpretation"); el.innerHTML=html; el.classList.remove("hidden");
+}
+
+function allCommercialFares(it){
+  const by=it.fare_options_by_currency||{};
+  let fares=[];
+  ["USD","ARS"].forEach(c=>{if(by[c]) fares=fares.concat(by[c]);});
+  if(!fares.length) fares=Object.values(it.fares_by_currency||{});
+  if(!fares.length && it.fare) fares=[it.fare];
+  // Keep a commercial ladder similar to backend renderer.
+  const selected=[];
+  ["USD","ARS"].forEach(cur=>{
+    const f=fares.filter(x=>x.currency===cur).sort((a,b)=>Number(a.price_per_passenger)-Number(b.price_per_passenger));
+    const eco=f.filter(x=>(x.cabin||"").toLowerCase()==="economy");
+    const prem=f.filter(x=>(x.cabin||"").toLowerCase()==="premium economy");
+    const bus=f.filter(x=>(x.cabin||"").toLowerCase()==="business");
+    if(eco.length){
+      selected.push(eco[0]);
+      const rest=eco.slice(1);
+      const flex=rest.filter(x=>(x.brand_name||"").toUpperCase().includes("FLEX"));
+      if(flex.length) selected.push(flex[0]); else if(rest.length) selected.push(rest[0]);
+    }
+    if(prem.length) selected.push(prem[0]);
+    if(bus.length) selected.push(bus[0]);
+  });
+  return selected.length?selected:fares;
+}
+
+function renderQuote(q){
+  if(!q)return;
+  document.getElementById("quoteSection").classList.remove("hidden");
+  document.getElementById("quoteId").textContent=q.quote_id||"";
+  document.getElementById("quoteMeta").textContent=`${q.result_count} resultados normalizados · ${q.environment}`;
+  const options=q.options||[];
+  document.getElementById("options").innerHTML=options.map(item=>{
+    const it=item.itinerary;
+    const flights=(it.segments||[]).map(s=>`<div class="flight"><strong>${esc(s.marketing_carrier)} ${esc(s.flight_number)}</strong> · ${esc(s.departure_airport)}/${esc(s.arrival_airport)} · ${esc(fmtDateTime(s.departure_at))} → ${esc(fmtDateTime(s.arrival_at))}</div>`).join("");
+    const fares=allCommercialFares(it).map(f=>{
+      const label=f.brand_name||f.brand_code||f.cabin;
+      const bag=(f.baggage||[])[0]||"Equipaje a confirmar";
+      return `<div class="fare"><strong>${esc(label)}</strong><div class="price">${esc(money(f.price_per_passenger,f.currency))}</div><div class="muted">${esc(bag)}</div></div>`;
+    }).join("");
+    const checked=(currentQuote?.selected_ranks||[]).includes(item.rank)?"checked":"";
+    return `<div class="option-card">
+      <div class="option-head">
+        <div><div class="option-title">Opción ${item.rank}</div><div class="muted">${item.stops===0?"Directo":item.stops+" escala(s)"}</div></div>
+        <label><input type="checkbox" class="rank-check" value="${item.rank}" ${checked}> Seleccionar</label>
+      </div>
+      ${flights}<div class="fares">${fares}</div>
+    </div>`;
+  }).join("");
+}
+
+function selectedRanks(){return [...document.querySelectorAll(".rank-check:checked")].map(x=>Number(x.value));}
+
+async function saveSelection(){
+  if(!currentQuoteId)return;
+  const ranks=selectedRanks();
+  if(!ranks.length){alert("Seleccioná al menos una opción.");return;}
+  try{
+    await api(`/quotes/${currentQuoteId}/select`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ranks})});
+    alert("Selección guardada.");
+    await loadHistory();
+  }catch(e){alert(e.message);}
+}
+
+async function clearSelection(){
+  if(!currentQuoteId)return;
+  try{
+    await api(`/quotes/${currentQuoteId}/select`,{method:"DELETE"});
+    document.querySelectorAll(".rank-check").forEach(x=>x.checked=false);
+    alert("Selección eliminada.");
+  }catch(e){alert(e.message);}
+}
+
+async function ensureSelection(){
+  const ranks=selectedRanks();
+  if(ranks.length){
+    await api(`/quotes/${currentQuoteId}/select`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ranks})});
+  }
+}
+
+async function showWhatsApp(){
+  try{
+    await ensureSelection();
+    const text=await api(`/quotes/${currentQuoteId}/whatsapp`);
+    document.getElementById("previewTitle").textContent="WhatsApp";
+    document.getElementById("previewBody").innerHTML=`<div class="actions"><button class="secondary" onclick="copyPreview()">Copiar</button></div><div id="copySource" class="preview">${esc(text)}</div>`;
+    document.getElementById("previewSection").classList.remove("hidden");
+  }catch(e){alert(e.message);}
+}
+
+async function showEmail(){
+  try{
+    await ensureSelection();
+    const html=await api(`/quotes/${currentQuoteId}/email`);
+    document.getElementById("previewTitle").textContent="Email";
+    document.getElementById("previewBody").innerHTML=`<iframe id="emailFrame"></iframe>`;
+    const frame=document.getElementById("emailFrame");
+    frame.srcdoc=html;
+    document.getElementById("previewSection").classList.remove("hidden");
+  }catch(e){alert(e.message);}
+}
+
+function copyPreview(){
+  const t=document.getElementById("copySource")?.innerText||"";
+  navigator.clipboard.writeText(t).then(()=>alert("Copiado."));
+}
+function hidePreview(){document.getElementById("previewSection").classList.add("hidden");}
+
+async function auditRules(){
+  try{
+    await ensureSelection();
+    const data=await api(`/quotes/${currentQuoteId}/fare-rules`);
+    const rows=[];
+    (data.options||[]).forEach(o=>(o.fares||[]).forEach(f=>{
+      rows.push(`<div class="fare"><strong>Opción ${o.rank} · ${esc(f.brand_name||f.cabin)}</strong>
+      <div class="rule ${f.baggage.confidence==="high"?"high":"unknown"}">Equipaje: ${esc(f.baggage.text)}</div>
+      <div class="rule ${f.changes.confidence==="high"?"high":"unknown"}">Cambios: ${esc(f.changes.text)}</div>
+      <div class="rule ${f.refunds.confidence==="high"?"high":"unknown"}">Devoluciones: ${esc(f.refunds.text)}</div>
+      <div class="rule ${f.ticketing.confidence==="high"?"high":"unknown"}">Emisión: ${esc(f.ticketing.text)}</div></div>`);
+    }));
+    document.getElementById("previewTitle").textContent="Auditoría de reglas";
+    document.getElementById("previewBody").innerHTML=`<div class="status ${data.requires_external_rule_lookup?"warn":"ok"}">${data.requires_external_rule_lookup?"Faltan reglas externas para algunos conceptos.":"Reglas suficientes para los conceptos auditados."}</div><div class="fares">${rows.join("")}</div>`;
+    document.getElementById("previewSection").classList.remove("hidden");
+  }catch(e){alert(e.message);}
+}
+
+async function loadHistory(){
+  try{
+    const rows=await api("/quotes?limit=20");
+    const el=document.getElementById("history");
+    if(!rows.length){el.textContent="Todavía no hay cotizaciones.";return;}
+    el.innerHTML=rows.map(q=>`<div class="history-item" onclick="openQuote('${esc(q.quote_id)}')">
+      <strong>${esc(q.origin||"")} → ${esc(q.destination||"")}</strong>
+      <div>${esc(q.departure_date||"")}${q.return_date?" / "+esc(q.return_date):""}</div>
+      <div>${esc(q.quote_id)} · ${q.status}</div>
+    </div>`).join("");
+  }catch(e){document.getElementById("history").textContent=e.message;}
+}
+
+async function openQuote(id){
+  try{
+    const rec=await api(`/quotes/${id}`);
+    currentQuoteId=id;
+    currentQuote=rec.quote_response;
+    currentQuote.selected_ranks=rec.selected_ranks||[];
+    renderQuote(currentQuote);
+    document.getElementById("quoteId").textContent=id;
+    document.getElementById("quoteMeta").textContent=`Guardada · ${rec.status} · ${rec.source}`;
+    if(rec.agent_text) document.getElementById("prompt").value=rec.agent_text;
+    document.getElementById("clientName").value=rec.client_name||"";
+    document.getElementById("clientReference").value=rec.client_reference||"";
+    document.getElementById("quoteNotes").value=rec.notes||"";
+  }catch(e){alert(e.message);}
+}
+
+loadHistory();
+</script>
+</body>
+</html>

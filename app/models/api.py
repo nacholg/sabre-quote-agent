@@ -1,0 +1,337 @@
+from __future__ import annotations
+
+from datetime import date, time
+from decimal import Decimal
+from typing import Literal
+
+from pydantic import BaseModel, Field, model_validator
+
+from app.models.itinerary import ItineraryOption
+from app.models.quote_request import Cabin, FarePreference, PassengerSpec, QuoteSearchRequest, RequestProfile, SearchLeg, TripType
+from app.services.pricing_rules import PricingCurrency
+from app.services.ranking import RankingMode
+
+
+class QuoteSearchAPIRequest(BaseModel):
+    environment: Literal["cert", "prod"] = "cert"
+
+    origin: str | None = Field(default=None, min_length=3, max_length=3)
+    destination: str | None = Field(default=None, min_length=3, max_length=3)
+    departure_date: date | None = None
+    return_date: date | None = None
+    departure_time: time = time(12, 0)
+    return_time: time = time(12, 0)
+
+    trip_type: TripType | None = None
+    legs: list[SearchLeg] = Field(default_factory=list)
+
+    adults: int = Field(default=1, ge=1, le=9)
+    children: int = Field(default=0, ge=0, le=9)
+    child_age: int = Field(default=6, ge=2, le=11)
+    infants: int = Field(default=0, ge=0, le=9)
+    passengers: list[PassengerSpec] = Field(default_factory=list)
+
+    cabin: Cabin = Cabin.ECONOMY
+    cabins: list[Cabin] = Field(default_factory=list)
+    outbound_cabin: Cabin | None = None
+    return_cabin: Cabin | None = None
+    direct: bool = False
+    max_stops: int = Field(default=1, ge=0, le=3)
+    max_options: int = Field(default=5, ge=1, le=50)
+
+    currency: PricingCurrency = PricingCurrency.AUTO
+    carriers: list[str] = Field(default_factory=list)
+    excluded_carriers: list[str] = Field(default_factory=list)
+    fare_preference: FarePreference = FarePreference.AUTO
+    sort: RankingMode = RankingMode.BALANCED
+    request_profile: RequestProfile = RequestProfile.STANDARD
+    business_companion: bool = True
+    persist: bool = True
+
+    @model_validator(mode="after")
+    def normalize_cabin_selection(self) -> "QuoteSearchAPIRequest":
+        if self.cabins:
+            ordered: list[Cabin] = []
+            for cabin in self.cabins:
+                if cabin not in ordered:
+                    ordered.append(cabin)
+            self.cabins = ordered
+            self.cabin = ordered[0]
+        return self
+
+    @property
+    def effective_cabins(self) -> list[Cabin]:
+        return self.cabins or [self.cabin]
+
+    @property
+    def has_mixed_leg_cabins(self) -> bool:
+        return bool(
+            self.outbound_cabin
+            and self.return_cabin
+            and self.outbound_cabin != self.return_cabin
+        )
+
+    @model_validator(mode="after")
+    def synchronize_passenger_compatibility_fields(self) -> "QuoteSearchAPIRequest":
+        if self.passengers:
+            from app.models.quote_request import PassengerKind
+            self.adults = sum(
+                p.quantity for p in self.passengers if p.type == PassengerKind.ADULT
+            )
+            self.children = sum(
+                p.quantity for p in self.passengers if p.type == PassengerKind.CHILD
+            )
+            self.infants = sum(
+                p.quantity for p in self.passengers if p.type == PassengerKind.INFANT
+            )
+            child_specs = [p for p in self.passengers if p.type == PassengerKind.CHILD]
+            if len(child_specs) == 1 and child_specs[0].age is not None:
+                self.child_age = child_specs[0].age
+        return self
+
+    @model_validator(mode="after")
+    def validate_route(self) -> "QuoteSearchAPIRequest":
+        if self.legs:
+            return self
+        missing = [
+            name for name, value in (
+                ("origin", self.origin),
+                ("destination", self.destination),
+                ("departure_date", self.departure_date),
+            )
+            if value is None
+        ]
+        if missing:
+            raise ValueError(
+                "Faltan campos obligatorios cuando no se usa legs: " + ", ".join(missing)
+            )
+        return self
+
+    def to_search_request(self) -> QuoteSearchRequest:
+        if self.legs:
+            origin = self.legs[0].origin
+            destination = self.legs[0].destination
+            departure_date = self.legs[0].departure_date
+            trip_type = self.trip_type or (
+                TripType.CIRCLE_TRIP if len(self.legs) >= 3 else TripType.OPEN_JAW
+            )
+            return_date = None
+        else:
+            assert self.origin and self.destination and self.departure_date
+            origin = self.origin
+            destination = self.destination
+            departure_date = self.departure_date
+            trip_type = self.trip_type or (
+                TripType.ROUND_TRIP if self.return_date else TripType.ONE_WAY
+            )
+            return_date = self.return_date
+
+        return QuoteSearchRequest(
+            origin=origin,
+            destination=destination,
+            departure_date=departure_date,
+            return_date=return_date,
+            departure_time=self.departure_time,
+            return_time=self.return_time,
+            trip_type=trip_type,
+            legs=self.legs,
+            adults=self.adults,
+            children=self.children,
+            child_age=self.child_age,
+            infants=self.infants,
+            passengers=self.passengers,
+            cabin=self.cabin,
+            max_stops=0 if self.direct else self.max_stops,
+            max_options=self.max_options,
+            currency=self.currency,
+            preferred_carriers=self.carriers,
+            excluded_carriers=self.excluded_carriers,
+            request_profile=self.request_profile,
+            fare_preference=self.fare_preference,
+        )
+
+
+class SabreSearchCall(BaseModel):
+    currency: str
+    cabin: str
+    transaction_id: str | None = None
+    itinerary_count: int = 0
+    no_availability: bool = False
+
+
+class RankedOption(BaseModel):
+    rank: int
+    score: Decimal
+    stops: int
+    duration_minutes: int
+    ranking_currency: str
+    ranking_price: Decimal
+    itinerary: ItineraryOption
+
+
+class QuoteSearchAPIResponse(BaseModel):
+    quote_id: str | None = None
+    environment: str
+    effective_currencies: list[str]
+    calls: list[SabreSearchCall]
+    result_count: int
+    options: list[RankedOption]
+    client_quote: str
+
+
+class AgentQuoteRequest(BaseModel):
+    text: str = Field(min_length=3)
+    environment: Literal["cert", "prod"] = "cert"
+    execute: bool = True
+    max_options: int | None = Field(default=None, ge=1, le=50)
+
+
+class AgentInterpretation(BaseModel):
+    parser: str = "deterministic-v1"
+    confidence: float = Field(ge=0, le=1)
+    assumptions: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    search_request: QuoteSearchAPIRequest
+
+
+class AgentQuoteResponse(BaseModel):
+    interpretation: AgentInterpretation
+    quote: QuoteSearchAPIResponse | None = None
+
+
+class StoredQuoteSummary(BaseModel):
+    quote_id: str
+    created_at: str
+    updated_at: str
+    status: str
+    selected_ranks: list[int] = Field(default_factory=list)
+    source: str
+    client_name: str | None = None
+    client_reference: str | None = None
+    parent_quote_id: str | None = None
+    sent_at: str | None = None
+    origin: str | None = None
+    destination: str | None = None
+    departure_date: str | None = None
+    return_date: str | None = None
+    passenger_count: int = 0
+    result_count: int = 0
+
+
+class StoredQuoteRecord(BaseModel):
+    quote_id: str
+    created_at: str
+    updated_at: str
+    status: str
+    selected_ranks: list[int] = Field(default_factory=list)
+    source: str
+    client_name: str | None = None
+    client_reference: str | None = None
+    notes: str | None = None
+    sent_at: str | None = None
+    parent_quote_id: str | None = None
+    refreshed_quote_id: str | None = None
+    agent_text: str | None = None
+    interpretation: dict | None = None
+    search_request: dict
+    quote_response: dict
+
+
+class QuoteSelectionRequest(BaseModel):
+    ranks: list[int] = Field(min_length=1, max_length=10, examples=[[1]])
+
+    @model_validator(mode="after")
+    def validate_unique_positive_ranks(self) -> "QuoteSelectionRequest":
+        if any(rank < 1 for rank in self.ranks):
+            raise ValueError("Todos los ranks deben ser mayores o iguales a 1.")
+        if len(set(self.ranks)) != len(self.ranks):
+            raise ValueError("No se pueden seleccionar ranks repetidos.")
+        self.ranks = sorted(self.ranks)
+        return self
+
+
+class QuoteSelectionResponse(BaseModel):
+    quote_id: str
+    status: str
+    selected_ranks: list[int]
+    selected_count: int
+
+
+class QuoteRenderResponse(BaseModel):
+    quote_id: str
+    format: Literal["whatsapp", "email"]
+    selected_ranks: list[int]
+    content_type: str
+    content: str
+
+
+class FareRuleDatum(BaseModel):
+    status: Literal["included", "with_fee", "not_allowed", "allowed", "unknown"]
+    source: Literal["brand_feature", "fare_flag", "baggage", "ticketing", "not_provided"]
+    confidence: Literal["high", "medium", "unknown"]
+    text: str
+
+
+class FareRuleFareAudit(BaseModel):
+    cabin: str
+    brand_name: str | None = None
+    brand_code: str | None = None
+    currency: str
+    price_per_passenger: Decimal
+    baggage: FareRuleDatum
+    changes: FareRuleDatum
+    refunds: FareRuleDatum
+    ticketing: FareRuleDatum
+
+
+class FareRuleOptionAudit(BaseModel):
+    rank: int
+    fares: list[FareRuleFareAudit]
+
+
+class FareRuleAuditResponse(BaseModel):
+    quote_id: str
+    selected_only: bool
+    options: list[FareRuleOptionAudit]
+    requires_external_rule_lookup: bool
+
+
+class QuoteWorkflowUpdate(BaseModel):
+    client_name: str | None = Field(default=None, max_length=200)
+    client_reference: str | None = Field(default=None, max_length=200)
+    notes: str | None = Field(default=None, max_length=5000)
+    status: Literal["active", "selected", "ready", "sent", "superseded"] | None = None
+
+
+class QuoteWorkflowResponse(BaseModel):
+    quote_id: str
+    status: str
+    client_name: str | None = None
+    client_reference: str | None = None
+    notes: str | None = None
+    sent_at: str | None = None
+    parent_quote_id: str | None = None
+    refreshed_quote_id: str | None = None
+
+
+class FarePriceChange(BaseModel):
+    cabin: str
+    brand_name: str | None = None
+    currency: str
+    old_price: Decimal
+    new_price: Decimal | None = None
+    delta: Decimal | None = None
+    status: Literal["same", "changed", "unavailable"]
+
+
+class RefreshedOptionComparison(BaseModel):
+    old_rank: int
+    new_rank: int | None = None
+    itinerary_status: Literal["same", "unavailable"]
+    fare_changes: list[FarePriceChange] = Field(default_factory=list)
+
+
+class QuoteRefreshResponse(BaseModel):
+    original_quote_id: str
+    refreshed_quote_id: str
+    comparisons: list[RefreshedOptionComparison]
