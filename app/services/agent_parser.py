@@ -101,6 +101,27 @@ def _contains_alias(text_folded: str, aliases: Iterable[str]) -> str | None:
     return None
 
 
+
+@lru_cache(maxsize=1)
+def _reserved_airline_aliases() -> frozenset[str]:
+    aliases = {
+        _fold(alias).strip()
+        for alias in CARRIER_ALIASES
+        if len(_fold(alias).strip()) >= 3
+    }
+
+    try:
+        repo = get_reference_repository()
+        for rec in repo.alias_records("airline"):
+            alias = _fold(str(rec["alias"])).strip()
+            if len(alias) >= 3:
+                aliases.add(alias)
+    except Exception:
+        pass
+
+    return frozenset(aliases)
+
+
 @lru_cache(maxsize=1)
 def _location_reference_index() -> tuple[
     dict[str, tuple[tuple[str, str], ...]],
@@ -108,6 +129,7 @@ def _location_reference_index() -> tuple[
 ]:
     index: dict[str, list[tuple[str, str]]] = defaultdict(list)
     explicit_codes: set[str] = set()
+    reserved_airline_aliases = _reserved_airline_aliases()
 
     for alias, code in AIRPORT_ALIASES.items():
         folded_alias = _fold(alias).strip()
@@ -129,8 +151,13 @@ def _location_reference_index() -> tuple[
                     explicit_codes.add(code)
                     continue
                 folded_alias = _fold(alias).strip()
-                if folded_alias:
-                    index[folded_alias.split()[0]].append((folded_alias, code))
+                if not folded_alias:
+                    continue
+
+                if folded_alias in reserved_airline_aliases:
+                    continue
+
+                index[folded_alias.split()[0]].append((folded_alias, code))
     except Exception:
         pass
 
@@ -189,6 +216,7 @@ def _airline_reference_index() -> tuple[
 
 
 def clear_reference_parser_caches() -> None:
+    _reserved_airline_aliases.cache_clear()
     _location_reference_index.cache_clear()
     _airline_reference_index.cache_clear()
 

@@ -463,3 +463,54 @@ def test_common_words_do_not_become_location_codes():
     assert parsed.search_request.origin == "EZE"
     assert parsed.search_request.destination == "LJU"
     assert not any("más de dos aeropuertos" in w for w in parsed.warnings)
+
+
+def test_iberia_is_airline_not_location():
+    parsed = parse_agent_quote(
+        AgentQuoteRequest(
+            text=(
+                "cotizar eze mad para el 20 de diciembre con regreso el 30 de diciembre, "
+                "en economy, solo Iberia, usd"
+            ),
+            execute=False,
+        ),
+        today=TODAY,
+    )
+    req = parsed.search_request
+    assert req.origin == "EZE"
+    assert req.destination == "MAD"
+    assert req.carriers == ["IB"]
+    assert req.excluded_carriers == []
+    assert req.currency.value == "USD"
+    assert [c.value for c in req.cabins] == ["ECONOMY"]
+    assert not any("más de dos aeropuertos" in warning for warning in parsed.warnings)
+
+
+def test_iberia_or_aerolineas_maps_to_both_carriers():
+    parsed = parse_agent_quote(
+        AgentQuoteRequest(
+            text=(
+                "Cotizame EZE-MAD del 20 al 30 de diciembre, "
+                "Iberia o Aerolíneas, economy, USD"
+            ),
+            execute=False,
+        ),
+        today=TODAY,
+    )
+    assert parsed.search_request.carriers == ["AR", "IB"]
+
+
+def test_any_airline_except_iberia_excludes_ib():
+    parsed = parse_agent_quote(
+        AgentQuoteRequest(
+            text=(
+                "Cotizame EZE-MAD del 20 al 30 de diciembre, "
+                "cualquier aerolínea excepto Iberia, economy, USD"
+            ),
+            execute=False,
+        ),
+        today=TODAY,
+    )
+    req = parsed.search_request
+    assert req.carriers == []
+    assert req.excluded_carriers == ["IB"]
