@@ -41,6 +41,17 @@
     .option-card{border:1px solid var(--line);border-radius:13px;padding:16px;margin:12px 0;background:white}
     .option-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
     .option-title{font-weight:750}
+    .commercial-labels{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:7px}
+    .commercial-label{
+      display:inline-flex;align-items:center;gap:4px;
+      border-radius:999px;padding:4px 8px;font-size:11px;font-weight:750;
+      border:1px solid var(--line);background:#f7f9fc;color:#344054
+    }
+    .commercial-label.recommended{background:#eef4ff;color:#1849a9;border-color:#c7d7fe}
+    .commercial-label.lowest_price{background:#ecfdf3;color:#067647;border-color:#abefc6}
+    .commercial-label.fastest{background:#f0f9ff;color:#026aa2;border-color:#b9e6fe}
+    .commercial-label.fewest_stops{background:#f9f5ff;color:#6941c6;border-color:#e9d7fe}
+    .commercial-label.best_schedule{background:#fff7ed;color:#c4320a;border-color:#fed7aa}
     .flight{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;padding:6px 0}
     .fares{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-top:12px}
     .fare{border:1px solid var(--line);border-radius:10px;padding:12px;background:#fafcff}
@@ -156,6 +167,24 @@ function fmtDateTime(v){
 
   const month=months[Number(m[2])-1] || m[2];
   return `${m[3]}-${month}, ${m[4]}:${m[5]}`;
+}
+
+function renderCommercialLabels(labels){
+  const meta={
+    recommended:["⭐","Recomendada"],
+    lowest_price:["💲","Más económica"],
+    fastest:["⏱","Más rápida"],
+    fewest_stops:["✈","Menos escalas"],
+    best_schedule:["🕒","Mejor horario"]
+  };
+
+  return (labels||[])
+    .filter(label=>meta[label])
+    .map(label=>{
+      const [icon,text]=meta[label];
+      return `<span class="commercial-label ${esc(label)}">${icon} ${esc(text)}</span>`;
+    })
+    .join("");
 }
 
 function fmtConstraintDate(v){
@@ -380,9 +409,14 @@ function renderQuote(q){
       return `<div class="fare"><strong>${esc(label)}</strong><div class="price">${esc(money(f.price_per_passenger,f.currency))}</div><div class="muted">${esc(bag)}</div></div>`;
     }).join("");
     const checked=(currentQuote?.selected_ranks||[]).includes(item.rank)?"checked":"";
+    const commercialLabels=renderCommercialLabels(item.commercial_labels);
     return `<div class="option-card">
       <div class="option-head">
-        <div><div class="option-title">Opción ${item.rank}</div><div class="muted">${item.stops===0?"Directo":item.stops+" escala(s)"}</div></div>
+        <div>
+          ${commercialLabels?`<div class="commercial-labels">${commercialLabels}</div>`:""}
+          <div class="option-title">Opción ${item.rank}</div>
+          <div class="muted">${item.stops===0?"Directo":item.stops+" escala(s)"}</div>
+        </div>
         <label><input type="checkbox" class="rank-check" value="${item.rank}" ${checked}> Seleccionar</label>
       </div>
       ${flights}<div class="fares">${fares}</div>

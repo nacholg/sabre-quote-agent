@@ -10,7 +10,12 @@ from app.sabre.shopping import SabreShoppingService, extract_bfm_diagnostics
 from app.services.normalizer import merge_cabin_itineraries, merge_currency_itineraries, normalize_bfm_response
 from app.services.pricing_rules import resolve_pricing_currencies_for_legs
 from app.services.quote_renderer import render_ranked_client_quote
-from app.services.ranking import rank_itineraries
+from app.services.ranking import (
+    RankingMode,
+    assign_commercial_labels,
+    commercial_rank_itineraries,
+    rank_itineraries,
+)
 from app.services.fare_preference_filter import filter_refundable_itineraries
 from app.services.quote_repository import get_quote_repository
 from app.services.time_constraint_filter import (
@@ -317,6 +322,14 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
         mode=request.sort,
         preferred_currency=ranking_currency,
     )
+
+    if request.sort == RankingMode.BALANCED:
+        ranked_all = commercial_rank_itineraries(
+            ranked_all,
+            time_distance_by_signature=time_filter.distance_by_signature,
+            has_time_constraints=bool(search.time_constraints),
+        )
+
     ranked_all = reorder_ranked_by_time(
         ranked_all,
         time_filter.distance_by_signature,
@@ -345,6 +358,12 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
         for index, item in enumerate(ranked, start=1)
     ]
 
+    ranked = assign_commercial_labels(
+        ranked,
+        time_distance_by_signature=time_filter.distance_by_signature,
+        has_time_constraints=bool(search.time_constraints),
+    )
+
     response = QuoteSearchAPIResponse(
         environment=settings.sabre_env,
         effective_currencies=[key for key in keys if key != "OFFICIAL"],
@@ -358,6 +377,7 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
                 duration_minutes=item.duration_minutes,
                 ranking_currency=item.ranking_currency,
                 ranking_price=item.ranking_price,
+                commercial_labels=list(item.commercial_labels),
                 itinerary=item.option,
             )
             for item in ranked
