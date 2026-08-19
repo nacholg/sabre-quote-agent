@@ -147,6 +147,7 @@
 
 <script>
 let currentQuote = null;
+let currentCommercialQuote = null;
 let currentQuoteId = null;
 
 function esc(v){return String(v ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c]));}
@@ -249,20 +250,39 @@ async function runQuote(){
   const text=document.getElementById("prompt").value.trim();
   if(!text){setStatus("Escribí un pedido de cotización.","warn");return;}
   const btn=document.getElementById("searchBtn");
-  btn.disabled=true; setStatus("Consultando Sabre…","warn");
+  btn.disabled=true;
+  setStatus("Consultando Sabre…","warn");
   try{
     const data=await api("/agent/quote",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({text,environment:document.getElementById("environment").value,execute:true})
+      body:JSON.stringify({
+        text,
+        environment:document.getElementById("environment").value,
+        execute:true
+      })
     });
+
     renderInterpretation(data.interpretation);
     currentQuote=data.quote;
     currentQuoteId=data.quote?.quote_id || null;
+
     if(data.quote){
-      renderQuote(data.quote);
+      currentCommercialQuote=await api(`/quotes/${currentQuoteId}/commercial?selected_only=false`);
+      renderQuote(data.quote,currentCommercialQuote);
       setStatus(`Cotización creada: ${currentQuoteId}`,"ok");
-      await 
+      await loadHistory();
+    }else{
+      document.getElementById("quoteSection").classList.add("hidden");
+      setStatus("Pedido interpretado, pero no ejecutado: revisá las advertencias.","warn");
+    }
+  }catch(e){
+    setStatus(e.message,"err");
+  }finally{
+    btn.disabled=false;
+  }
+}
+
 async function saveWorkflow(status=null){
   if(!currentQuoteId)return;
   const body={
@@ -273,7 +293,9 @@ async function saveWorkflow(status=null){
   };
   try{
     const r=await api(`/quotes/${currentQuoteId}/workflow`,{
-      method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)
+      method:"PATCH",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(body)
     });
     alert(`Cotización actualizada · ${r.status}`);
     await loadHistory();
@@ -296,7 +318,9 @@ async function refreshQuote(){
         continue;
       }
       const fares=(c.fare_changes||[]).map(f=>{
-        if(f.status==="unavailable") return `<div class="rule unknown">${esc(f.cabin)} ${esc(f.brand_name||"")}: ya no disponible</div>`;
+        if(f.status==="unavailable"){
+          return `<div class="rule unknown">${esc(f.cabin)} ${esc(f.brand_name||"")}: ya no disponible</div>`;
+        }
         const delta=Number(f.delta||0);
         const sign=delta>0?"+":"";
         return `<div class="rule ${f.status==="same"?"high":"unknown"}">${esc(f.cabin)} ${esc(f.brand_name||"")}: ${esc(money(f.old_price,f.currency))} → ${esc(money(f.new_price,f.currency))}${f.status==="changed"?` (${sign}${delta.toFixed(2)})`:""}</div>`;
@@ -309,15 +333,6 @@ async function refreshQuote(){
     await openQuote(r.refreshed_quote_id);
     await loadHistory();
   }catch(e){alert(e.message);}
-}
-
-loadHistory();
-    }else{
-      document.getElementById("quoteSection").classList.add("hidden");
-      setStatus("Pedido interpretado, pero no ejecutado: revisá las advertencias.", "warn");
-    }
-  }catch(e){setStatus(e.message,"err");}
-  finally{btn.disabled=false;}
 }
 
 function renderInterpretation(i){
@@ -419,11 +434,31 @@ function allCommercialFares(it){
   return selected.length?selected:fares;
 }
 
-function renderQuote(q){
+function commercialRuleLine(label,value){
+  const text=String(value||"").trim();
+  if(!text)return "";
+
+  const lowered=text.toLowerCase();
+  const alreadyLabeled=
+    lowered.startsWith("equipaje:") ||
+    lowered.startsWith("cambios:") ||
+    lowered.startsWith("devolución:") ||
+    lowered.startsWith("devoluciones:") ||
+    lowered.startsWith("no-show:");
+
+  return `<div class="muted">${alreadyLabeled ? esc(text) : `<strong>${esc(label)}:</strong> ${esc(text)}`}</div>`;
+}
+
+function renderQuote(q,commercial=null){
   if(!q)return;
+
+  const cq=commercial||currentCommercialQuote;
   document.getElementById("quoteSection").classList.remove("hidden");
-  document.getElementById("quoteId").textContent=q.quote_id||"";
-  document.getElementById("quoteMeta").textContent=`${q.result_count} resultados normalizados · ${q.environment}`;
+  document.getElementById("quoteId").textContent=q.quote_id||cq?.quote_id||"";
+
+  const canonicalCount=(cq?.options||[]).length;
+  document.getElementById("quoteMeta").textContent=
+    `${canonicalCount || q.result_count || 0} resultados comerciales · ${cq?.environment||q.environment||""}`;
 
   const timeMatchEl=document.getElementById("timeMatchStatus");
   const tm=q.time_match||{status:"not_requested"};
@@ -450,17 +485,30 @@ function renderQuote(q){
     timeMatchEl.classList.add("hidden");
   }
 
-  const options=q.options||[];
+  const options=cq?.options||[];
   document.getElementById("options").innerHTML=options.map(item=>{
-    const it=item.itinerary;
-    const flights=(it.segments||[]).map(s=>`<div class="flight"><strong>${esc(s.marketing_carrier)} ${esc(s.flight_number)}</strong> · ${esc(s.departure_airport)}/${esc(s.arrival_airport)} · ${esc(fmtDateTime(s.departure_at))} → ${esc(fmtDateTime(s.arrival_at))}</div>`).join("");
-    const fares=allCommercialFares(it).map(f=>{
-      const label=f.brand_name||f.brand_code||f.cabin;
-      const bag=(f.baggage||[])[0]||"Equipaje a confirmar";
-      return `<div class="fare"><strong>${esc(label)}</strong><div class="price">${esc(money(f.price_per_passenger,f.currency))}</div><div class="muted">${esc(bag)}</div></div>`;
+    const flights=(item.segments||[]).map(s=>
+      `<div class="flight"><strong>${esc(s.marketing_carrier)} ${esc(s.flight_number)}</strong> · `+
+      `${esc(s.departure_airport)}/${esc(s.arrival_airport)} · `+
+      `${esc(fmtDateTime(s.departure_at))} → ${esc(fmtDateTime(s.arrival_at))}</div>`
+    ).join("");
+
+    const fares=(item.fares||[]).map(f=>{
+      const label=f.brand_name||f.brand_code||f.cabin||"Tarifa";
+      const rules=f.rules||{};
+      return `<div class="fare">
+        <strong>${esc(label)}</strong>
+        <div class="price">${farePriceHtml(f)}</div>
+        ${commercialRuleLine("Equipaje",rules.baggage)}
+        ${commercialRuleLine("Cambios",rules.changes)}
+        ${commercialRuleLine("Devoluciones",rules.refunds)}
+        ${commercialRuleLine("No-show",rules.no_show)}
+      </div>`;
     }).join("");
+
     const checked=(currentQuote?.selected_ranks||[]).includes(item.rank)?"checked":"";
     const commercialLabels=renderCommercialLabels(item.commercial_labels);
+
     return `<div class="option-card">
       <div class="option-head">
         <div>
@@ -474,7 +522,6 @@ function renderQuote(q){
     </div>`;
   }).join("");
 }
-
 function selectedRanks(){return [...document.querySelectorAll(".rank-check:checked")].map(x=>Number(x.value));}
 
 async function saveSelection(){
@@ -578,10 +625,12 @@ async function loadHistory(){
 async function openQuote(id){
   try{
     const rec=await api(`/quotes/${id}`);
+    const commercial=await api(`/quotes/${id}/commercial?selected_only=false`);
     currentQuoteId=id;
     currentQuote=rec.quote_response;
     currentQuote.selected_ranks=rec.selected_ranks||[];
-    renderQuote(currentQuote);
+    currentCommercialQuote=commercial;
+    renderQuote(currentQuote,currentCommercialQuote);
     document.getElementById("quoteId").textContent=id;
     document.getElementById("quoteMeta").textContent=`Guardada · ${rec.status} · ${rec.source}`;
     if(rec.agent_text) document.getElementById("prompt").value=rec.agent_text;
