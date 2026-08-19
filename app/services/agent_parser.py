@@ -8,7 +8,15 @@ from functools import lru_cache
 from typing import Iterable
 
 from app.models.api import AgentInterpretation, AgentQuoteRequest, QuoteSearchAPIRequest
-from app.models.quote_request import Cabin, FarePreference, PassengerKind, PassengerSpec
+from app.models.quote_request import (
+    Cabin,
+    FarePreference,
+    PassengerKind,
+    PassengerSpec,
+    SearchLeg,
+    TripType,
+    infer_trip_type,
+)
 from app.services.pricing_rules import PricingCurrency
 from app.services.reference_repository import get_reference_repository
 from app.services.time_parser import parse_time_constraints
@@ -19,14 +27,14 @@ AIRPORT_ALIASES = {
     "aep": "AEP", "aeroparque": "AEP",
     "bue": "BUE", "buenos aires": "BUE",
     "mia": "MIA", "miami": "MIA",
-    "jfk": "JFK", "nueva york": "JFK", "new york": "JFK", "nyc": "JFK",
+    "jfk": "JFK", "nueva york": "NYC", "new york": "NYC", "nyc": "NYC",
     "dfw": "DFW", "dallas": "DFW",
     "mad": "MAD", "madrid": "MAD",
     "bcn": "BCN", "barcelona": "BCN",
-    "lhr": "LHR", "londres": "LHR", "london": "LHR",
+    "lhr": "LHR", "londres": "LON", "london": "LON", "lon": "LON",
     "cdg": "CDG", "paris": "CDG", "parís": "CDG",
     "gru": "GRU", "sao paulo": "GRU", "são paulo": "GRU",
-    "gig": "GIG", "rio": "GIG", "rio de janeiro": "GIG",
+    "gig": "GIG", "rio": "RIO", "rio de janeiro": "RIO",
     "scl": "SCL", "santiago": "SCL",
     "lim": "LIM", "lima": "LIM",
     "bog": "BOG", "bogota": "BOG", "bogotá": "BOG",
@@ -42,6 +50,7 @@ AIRPORT_ALIASES = {
     "igr": "IGR", "iguazu": "IGR", "iguazú": "IGR",
     "fte": "FTE", "el calafate": "FTE", "calafate": "FTE",
     "fco": "FCO", "roma": "FCO", "rome": "FCO",
+    "tyo": "TYO", "tokyo": "TYO", "tokio": "TYO",
 }
 
 CARRIER_ALIASES = {
@@ -612,6 +621,243 @@ def _passengers(text: str) -> tuple[list[PassengerSpec], list[str]]:
     return passengers, warnings
 
 
+
+_MONTH_ABBR = {
+    "JAN": 1, "ENE": 1,
+    "FEB": 2,
+    "MAR": 3,
+    "APR": 4, "ABR": 4,
+    "MAY": 5,
+    "JUN": 6,
+    "JUL": 7,
+    "AUG": 8, "AGO": 8,
+    "SEP": 9, "SET": 9,
+    "OCT": 10,
+    "NOV": 11,
+    "DEC": 12, "DIC": 12,
+}
+
+
+def _parse_compact_date_token(token: str, today: date) -> date | None:
+    value = token.strip().upper()
+
+    match = re.fullmatch(r"(\d{1,2})([A-Z]{3})(20\d{2})?", value)
+    if match:
+        day_text, month_text, year_text = match.groups()
+        month = _MONTH_ABBR.get(month_text)
+        if month is None:
+            return None
+        day = int(day_text)
+        year = _resolve_year(
+            month,
+            day,
+            int(year_text) if year_text else None,
+            today,
+        )
+        return date(year, month, day)
+
+    match = re.fullmatch(
+        r"(\d{1,2})[/-](\d{1,2})(?:[/-](20\d{2}))?",
+        value,
+    )
+    if match:
+        day_text, month_text, year_text = match.groups()
+        day = int(day_text)
+        month = int(month_text)
+        year = _resolve_year(
+            month,
+            day,
+            int(year_text) if year_text else None,
+            today,
+        )
+        return date(year, month, day)
+
+    return None
+
+
+
+def _parse_compact_dates_in_text(
+    text: str,
+    today: date,
+) -> list[date]:
+    values: list[date] = []
+
+    for match in re.finditer(
+        r"\b("
+        r"\d{1,2}[A-Za-z]{3}(?:20\d{2})?"
+        r"|"
+        r"\d{1,2}[/-]\d{1,2}(?:[/-]20\d{2})?"
+        r")\b",
+        text,
+    ):
+        parsed = _parse_compact_date_token(
+            match.group(1),
+            today,
+        )
+        if parsed is not None:
+            values.append(parsed)
+
+    return values
+
+def _explicit_route_occurrences(text: str) -> list[tuple[int, int, str, str]]:
+    return [
+        (
+            match.start(),
+            match.end(),
+            match.group(1).upper(),
+            match.group(2).upper(),
+        )
+        for match in re.finditer(
+            r"(?<![A-Za-z0-9])"
+            r"([A-Za-z]{3})\s*[-/]\s*([A-Za-z]{3})"
+            r"(?![A-Za-z0-9])",
+            text,
+        )
+    ]
+
+
+def _parse_explicit_trip_legs(
+    text: str,
+    today: date,
+) -> list[SearchLeg]:
+    routes = _explicit_route_occurrences(text)
+    if not routes:
+        return []
+
+    legs: list[SearchLeg] = []
+
+    for index, (_start, end, origin, destination) in enumerate(routes):
+        next_start = (
+            routes[index + 1][0]
+            if index + 1 < len(routes)
+            else len(text)
+        )
+        tail = text[end:next_start]
+
+        date_match = re.search(
+            r"\b("
+            r"\d{1,2}[A-Za-z]{3}(?:20\d{2})?"
+            r"|"
+            r"\d{1,2}[/-]\d{1,2}(?:[/-]20\d{2})?"
+            r")\b",
+            tail,
+        )
+
+        if not date_match:
+            if len(routes) == 1:
+                return []
+            raise ValueError(
+                f"No pude identificar la fecha del tramo "
+                f"{origin}-{destination}."
+            )
+
+        leg_date = _parse_compact_date_token(
+            date_match.group(1),
+            today,
+        )
+        if leg_date is None:
+            raise ValueError(
+                f"No pude interpretar la fecha del tramo "
+                f"{origin}-{destination}."
+            )
+
+        legs.append(
+            SearchLeg(
+                origin=origin,
+                destination=destination,
+                departure_date=leg_date,
+            )
+        )
+
+    dates = [leg.departure_date for leg in legs]
+    if dates != sorted(dates):
+        raise ValueError(
+            "Las fechas de los tramos deben estar en orden cronológico."
+        )
+
+    return legs
+
+
+def _return_origin_after_phrase(
+    text: str,
+    airports: list[tuple[int, str]],
+) -> str | None:
+    folded = _fold(text)
+    prefix = re.search(
+        r"\b(?:regreso|vuelta|return)\s+desde\b",
+        folded,
+    )
+    if not prefix:
+        return None
+
+    for position, code in airports:
+        if position >= prefix.end():
+            return code
+
+    return None
+
+
+def _canonical_trip_legs(
+    *,
+    text: str,
+    today: date,
+    airports: list[tuple[int, str]],
+    origin: str,
+    destination: str,
+    departure: date,
+    return_date: date | None,
+) -> tuple[list[SearchLeg], TripType]:
+    explicit = _parse_explicit_trip_legs(text, today)
+
+    if len(explicit) >= 2:
+        return explicit, infer_trip_type(explicit)
+
+    if return_date is None:
+        legs = [
+            SearchLeg(
+                origin=origin,
+                destination=destination,
+                departure_date=departure,
+            )
+        ]
+        return legs, TripType.ONE_WAY
+
+    return_origin = _return_origin_after_phrase(
+        text,
+        airports,
+    )
+
+    if return_origin and return_origin != destination:
+        legs = [
+            SearchLeg(
+                origin=origin,
+                destination=destination,
+                departure_date=departure,
+            ),
+            SearchLeg(
+                origin=return_origin,
+                destination=origin,
+                departure_date=return_date,
+            ),
+        ]
+        return legs, infer_trip_type(legs)
+
+    legs = [
+        SearchLeg(
+            origin=origin,
+            destination=destination,
+            departure_date=departure,
+        ),
+        SearchLeg(
+            origin=destination,
+            destination=origin,
+            departure_date=return_date,
+        ),
+    ]
+    return legs, TripType.ROUND_TRIP
+
+
+
 def parse_agent_quote(
     request: AgentQuoteRequest,
     *,
@@ -635,14 +881,14 @@ def parse_agent_quote(
     if re.search(r"\blleg(?:uen|ar|ando)?\s+a\b.*?\bdesde\b", folded):
         origin, destination = destination, origin
 
-    origin, destination, bue_assumptions = _resolve_buenos_aires(
-        origin,
-        destination,
-    )
-    assumptions.extend(bue_assumptions)
-
     departure, return_date, date_assumptions = _parse_dates(text, today)
     assumptions.extend(date_assumptions)
+
+    compact_dates = _parse_compact_dates_in_text(text, today)
+    if departure is None and compact_dates:
+        departure = compact_dates[0]
+    if return_date is None and len(compact_dates) >= 2:
+        return_date = compact_dates[1]
 
     time_constraints, inferred_departure, inferred_return, time_assumptions = parse_time_constraints(
         text,
@@ -655,8 +901,35 @@ def parse_agent_quote(
     if inferred_return is not None:
         return_date = inferred_return
 
+    explicit_legs = _parse_explicit_trip_legs(text, today)
+    if explicit_legs:
+        departure = explicit_legs[0].departure_date
+        if len(explicit_legs) == 2:
+            return_date = explicit_legs[1].departure_date
+        elif len(explicit_legs) >= 3:
+            return_date = None
+
     if departure is None:
         raise ValueError("No pude identificar la fecha de salida.")
+
+    legs, trip_type = _canonical_trip_legs(
+        text=text,
+        today=today,
+        airports=airports,
+        origin=origin,
+        destination=destination,
+        departure=departure,
+        return_date=return_date,
+    )
+
+    origin = legs[0].origin
+    destination = legs[0].destination
+    departure = legs[0].departure_date
+
+    if len(legs) == 2:
+        return_date = legs[1].departure_date
+    elif len(legs) >= 3:
+        return_date = None
 
     carriers, excluded = _carrier_sets(text)
     passengers, passenger_warnings = _passengers(text)
@@ -789,9 +1062,10 @@ def parse_agent_quote(
 
     business_companion = False
 
-    argentina_domestic = (
-        origin in ARGENTINA_AIRPORTS
-        and destination in ARGENTINA_AIRPORTS
+    argentina_domestic = all(
+        leg.origin in ARGENTINA_AIRPORTS
+        and leg.destination in ARGENTINA_AIRPORTS
+        for leg in legs
     )
 
     if argentina_domestic:
@@ -814,23 +1088,14 @@ def parse_agent_quote(
     confidence += 0.05 if carriers or excluded else 0
     confidence = min(confidence, 0.98)
 
-    unique_airport_codes = list(
-        dict.fromkeys(code for _position, code in airports)
-    )
-
-    if len(unique_airport_codes) > 2:
-        warnings.append(
-            "Detecté más de dos aeropuertos distintos; esta versión interpreta los "
-            "dos primeros como origen/destino. Para open jaw/circle trip conviene "
-            "usar /quotes/search estructurado por ahora."
-        )
-
     search_request = QuoteSearchAPIRequest(
         environment=request.environment,
         origin=origin,
         destination=destination,
         departure_date=departure,
         return_date=return_date,
+        trip_type=trip_type,
+        legs=legs,
         passengers=passengers,
         adults=sum(
             p.quantity

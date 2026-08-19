@@ -143,16 +143,15 @@ def test_natural_people_buenos_aires_domestic_and_baggage():
     )
     req = parsed.search_request
     assert req.origin == "COR"
-    assert req.destination == "AEP"
+    assert req.destination == "BUE"
     assert req.adults == 2
     assert req.direct is True
     assert req.carriers == ["AR"]
     assert req.currency.value == "ARS"
     assert req.fare_preference.value == "baggage"
-    assert any("Buenos Aires" in item for item in parsed.assumptions)
 
 
-def test_buenos_aires_resolves_eze_for_international():
+def test_buenos_aires_preserves_bue_city_code_for_international():
     parsed = parse_agent_quote(
         AgentQuoteRequest(
             text="Buenos Aires Miami del 19 al 30 de septiembre, 1 adulto, directo",
@@ -161,7 +160,7 @@ def test_buenos_aires_resolves_eze_for_international():
         today=TODAY,
     )
     req = parsed.search_request
-    assert req.origin == "EZE"
+    assert req.origin == "BUE"
     assert req.destination == "MIA"
 
 
