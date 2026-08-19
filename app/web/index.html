@@ -329,8 +329,7 @@ function renderInterpretation(i){
   if(legs.length){
     const itinerary=legs.map((leg,index)=>
       `${index+1}. ${leg.origin||""} → ${leg.destination||""} · ${leg.departure_date||""}`
-    ).join("
-");
+    ).join("\n");
 
     items.push(["Itinerario",itinerary]);
   }else{
