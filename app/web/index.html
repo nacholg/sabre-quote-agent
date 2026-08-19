@@ -249,20 +249,38 @@ async function runQuote(){
   const text=document.getElementById("prompt").value.trim();
   if(!text){setStatus("Escribí un pedido de cotización.","warn");return;}
   const btn=document.getElementById("searchBtn");
-  btn.disabled=true; setStatus("Consultando Sabre…","warn");
+  btn.disabled=true;
+  setStatus("Consultando Sabre…","warn");
   try{
     const data=await api("/agent/quote",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({text,environment:document.getElementById("environment").value,execute:true})
+      body:JSON.stringify({
+        text,
+        environment:document.getElementById("environment").value,
+        execute:true
+      })
     });
+
     renderInterpretation(data.interpretation);
     currentQuote=data.quote;
     currentQuoteId=data.quote?.quote_id || null;
+
     if(data.quote){
       renderQuote(data.quote);
       setStatus(`Cotización creada: ${currentQuoteId}`,"ok");
-      await 
+      await loadHistory();
+    }else{
+      document.getElementById("quoteSection").classList.add("hidden");
+      setStatus("Pedido interpretado, pero no ejecutado: revisá las advertencias.","warn");
+    }
+  }catch(e){
+    setStatus(e.message,"err");
+  }finally{
+    btn.disabled=false;
+  }
+}
+
 async function saveWorkflow(status=null){
   if(!currentQuoteId)return;
   const body={
@@ -273,7 +291,9 @@ async function saveWorkflow(status=null){
   };
   try{
     const r=await api(`/quotes/${currentQuoteId}/workflow`,{
-      method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)
+      method:"PATCH",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(body)
     });
     alert(`Cotización actualizada · ${r.status}`);
     await loadHistory();
@@ -296,7 +316,9 @@ async function refreshQuote(){
         continue;
       }
       const fares=(c.fare_changes||[]).map(f=>{
-        if(f.status==="unavailable") return `<div class="rule unknown">${esc(f.cabin)} ${esc(f.brand_name||"")}: ya no disponible</div>`;
+        if(f.status==="unavailable"){
+          return `<div class="rule unknown">${esc(f.cabin)} ${esc(f.brand_name||"")}: ya no disponible</div>`;
+        }
         const delta=Number(f.delta||0);
         const sign=delta>0?"+":"";
         return `<div class="rule ${f.status==="same"?"high":"unknown"}">${esc(f.cabin)} ${esc(f.brand_name||"")}: ${esc(money(f.old_price,f.currency))} → ${esc(money(f.new_price,f.currency))}${f.status==="changed"?` (${sign}${delta.toFixed(2)})`:""}</div>`;
@@ -309,15 +331,6 @@ async function refreshQuote(){
     await openQuote(r.refreshed_quote_id);
     await loadHistory();
   }catch(e){alert(e.message);}
-}
-
-loadHistory();
-    }else{
-      document.getElementById("quoteSection").classList.add("hidden");
-      setStatus("Pedido interpretado, pero no ejecutado: revisá las advertencias.", "warn");
-    }
-  }catch(e){setStatus(e.message,"err");}
-  finally{btn.disabled=false;}
 }
 
 function renderInterpretation(i){
