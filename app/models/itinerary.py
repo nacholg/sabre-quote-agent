@@ -62,12 +62,24 @@ class BrandedComponent(BaseModel):
     features: list[BrandFeature] = Field(default_factory=list)
 
 
+class PassengerPrice(BaseModel):
+    passenger_type: str
+    quantity: int = 1
+    age: int | None = None
+    currency: str
+    unit_price: Decimal
+    total_price: Decimal
+    total_tax: Decimal | None = None
+    base_fare_amount: Decimal | None = None
+
+
 class FareOption(BaseModel):
     cabin: str
     cabin_codes: list[str] = Field(default_factory=list)
     currency: str
     price_per_passenger: Decimal
     total_price: Decimal | None = None
+    passenger_prices: list[PassengerPrice] = Field(default_factory=list)
     total_tax: Decimal | None = None
     base_fare_amount: Decimal | None = None
     base_fare_currency: str | None = None

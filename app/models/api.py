@@ -295,9 +295,39 @@ class QuoteRenderResponse(BaseModel):
 
 class FareRuleDatum(BaseModel):
     status: Literal["included", "with_fee", "not_allowed", "allowed", "unknown"]
-    source: Literal["brand_feature", "fare_flag", "baggage", "ticketing", "not_provided"]
+    source: Literal["brand_feature", "fare_flag", "baggage", "ticketing", "air_rules", "not_provided"]
     confidence: Literal["high", "medium", "unknown"]
     text: str
+
+
+class FareRulePenalty(BaseModel):
+    amount: Decimal
+    currency: str
+    text: str | None = None
+
+
+class FareRuleConditionDetail(BaseModel):
+    status: Literal["allowed", "not_allowed", "with_fee", "unknown"] = "unknown"
+    amount: Decimal | None = None
+    currency: str | None = None
+    fare_difference_applies: bool | None = None
+    source_text: str | None = None
+
+
+class FareRuleStructuredDetails(BaseModel):
+    changes_before_departure: FareRuleConditionDetail | None = None
+    changes_after_departure: FareRuleConditionDetail | None = None
+    cancellation_before_departure: FareRuleConditionDetail | None = None
+    cancellation_after_departure: FareRuleConditionDetail | None = None
+    no_show: FareRuleConditionDetail | None = None
+
+
+class FareRuleCommercialSummary(BaseModel):
+    baggage: str
+    changes: str
+    refunds: str
+    no_show: str | None = None
+    ticketing: str
 
 
 class FareRuleFareAudit(BaseModel):
@@ -310,6 +340,11 @@ class FareRuleFareAudit(BaseModel):
     changes: FareRuleDatum
     refunds: FareRuleDatum
     ticketing: FareRuleDatum
+    structured_details: FareRuleStructuredDetails | None = None
+    commercial_summary: FareRuleCommercialSummary | None = None
+    changes_penalty: FareRulePenalty | None = None
+    refunds_penalty: FareRulePenalty | None = None
+    change_fare_difference_applies: bool | None = None
 
 
 class FareRuleOptionAudit(BaseModel):
@@ -322,6 +357,14 @@ class FareRuleAuditResponse(BaseModel):
     selected_only: bool
     options: list[FareRuleOptionAudit]
     requires_external_rule_lookup: bool
+    external_rule_provider: Literal["air_rules"] = "air_rules"
+    external_rule_lookup_status: Literal[
+        "not_needed",
+        "pending_authentication",
+        "lookup_failed",
+        "partial",
+        "resolved",
+    ] = "not_needed"
 
 
 class QuoteWorkflowUpdate(BaseModel):

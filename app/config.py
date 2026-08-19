@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     sabre_v3_token_path: str = "/v3/auth/token"
     sabre_shopping_path: str = "/v5/offers/shop"
 
+    # SOAP / Sabre Web Services.
+    # Can be overridden in .env/.env.cert with SABRE_SOAP_ENDPOINT.
+    sabre_soap_endpoint: str | None = None
+    sabre_cert_soap_endpoint: str = "https://webservices.cert.platform.sabre.com/websvc"
+    sabre_prod_soap_endpoint: str = "https://webservices.platform.sabre.com/websvc"
+
     sabre_timeout_seconds: float = Field(default=60, gt=0)
     sabre_max_retries: int = Field(default=2, ge=0, le=5)
 
@@ -50,6 +56,14 @@ class Settings(BaseSettings):
         if self.sabre_env.upper() == "CERT":
             return self.sabre_cert_base_url.rstrip("/")
         return self.sabre_prod_base_url.rstrip("/")
+
+    @property
+    def soap_endpoint(self) -> str:
+        if self.sabre_soap_endpoint and self.sabre_soap_endpoint.strip():
+            return self.sabre_soap_endpoint.strip().rstrip("/")
+        if self.sabre_env.upper() == "CERT":
+            return self.sabre_cert_soap_endpoint.rstrip("/")
+        return self.sabre_prod_soap_endpoint.rstrip("/")
 
     @property
     def resolved_username(self) -> str:

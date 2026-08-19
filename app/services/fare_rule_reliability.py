@@ -8,6 +8,8 @@ from app.models.api import (
     StoredQuoteRecord,
 )
 from app.models.itinerary import FareOption, ItineraryOption
+from app.sabre.air_rules import AirRulesParsedResponse
+from app.services.air_rules_audit_enrichment import enrich_fare_audit_with_air_rules
 from app.services.quote_renderer import _brand_feature_status, _fare_baggage_line, _select_commercial_fares
 
 
@@ -155,6 +157,7 @@ def audit_stored_quote(
     record: StoredQuoteRecord,
     *,
     selected_only: bool = True,
+    air_rules_by_fare_basis: dict[str, AirRulesParsedResponse] | None = None,
 ) -> FareRuleAuditResponse:
     raw_options = record.quote_response.get("options") or []
     if selected_only and record.selected_ranks:
@@ -165,7 +168,16 @@ def audit_stored_quote(
     requires_lookup = False
     for item in raw_options:
         option = ItineraryOption.model_validate(item["itinerary"])
-        audited_fares = [audit_fare(fare) for fare in commercial_fares(option)]
+        audited_fares: list[FareRuleFareAudit] = []
+        for fare in commercial_fares(option):
+            audit = audit_fare(fare)
+            if air_rules_by_fare_basis:
+                for fare_basis in fare.fare_basis_codes:
+                    parsed = air_rules_by_fare_basis.get(fare_basis)
+                    if parsed is not None:
+                        audit = enrich_fare_audit_with_air_rules(audit, parsed)
+                        break
+            audited_fares.append(audit)
         if any(
             audit.changes.status == "unknown" or audit.refunds.status == "unknown"
             for audit in audited_fares
@@ -178,11 +190,19 @@ def audit_stored_quote(
             )
         )
 
+    if requires_lookup:
+        lookup_status = "pending_authentication"
+    elif air_rules_by_fare_basis:
+        lookup_status = "resolved"
+    else:
+        lookup_status = "not_needed"
+
     return FareRuleAuditResponse(
         quote_id=record.quote_id,
         selected_only=selected_only,
         options=options,
         requires_external_rule_lookup=requires_lookup,
+        external_rule_lookup_status=lookup_status,
     )
 
 
