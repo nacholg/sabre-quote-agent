@@ -20,7 +20,7 @@ from app.services.quote_refresh import refresh_stored_quote
 
 app = FastAPI(
     title="Sabre Quote Agent",
-    version="0.18.2",
+    version="0.21.1",
     description="API read-only para buscar, normalizar y presentar cotizaciones Sabre BFM.",
 )
 
@@ -40,7 +40,7 @@ async def web_app() -> HTMLResponse:
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "sabre-quote-agent", "version": "0.18.2"}
+    return {"status": "ok", "service": "sabre-quote-agent", "version": "0.21.1"}
 
 
 @app.post("/quotes/search", response_model=QuoteSearchAPIResponse)
