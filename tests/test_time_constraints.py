@@ -20,7 +20,7 @@ def test_arrival_led_round_trip_with_dayparts():
         today=TODAY,
     )
     req = parsed.search_request
-    assert req.origin == "EZE"
+    assert req.origin == "BUE"
     assert req.destination == "MIA"
     assert str(req.departure_date) == "2027-02-10"
     assert str(req.return_date) == "2027-02-20"
@@ -92,7 +92,7 @@ def test_repeated_route_locations_do_not_trigger_open_jaw_warning():
         today=TODAY,
     )
 
-    assert parsed.search_request.origin == "EZE"
+    assert parsed.search_request.origin == "BUE"
     assert parsed.search_request.destination == "MIA"
     assert not any(
         "más de dos aeropuertos" in warning

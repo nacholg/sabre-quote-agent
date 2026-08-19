@@ -307,6 +307,8 @@ def seed_reference_data(repo: ReferenceRepository) -> None:
         ("BCN","Barcelona-El Prat","BCN","Barcelona","ES"),
         ("LHR","Heathrow","LON","London","GB"),
         ("LGW","Gatwick","LON","London","GB"),
+        ("LCY","London City","LON","London","GB"),
+        ("STN","Stansted","LON","London","GB"),
         ("CDG","Charles de Gaulle","PAR","Paris","FR"),
         ("ORY","Orly","PAR","Paris","FR"),
         ("FCO","Fiumicino","ROM","Rome","IT"),

@@ -9,6 +9,7 @@ from enum import StrEnum
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.services.pricing_rules import PricingCurrency
+from app.services.location_resolver import locations_equivalent
 
 
 class Cabin(StrEnum):
@@ -119,6 +120,26 @@ class SearchLeg(BaseModel):
     @classmethod
     def uppercase_codes(cls, value: str) -> str:
         return value.upper().strip()
+
+
+def infer_trip_type(legs: list[SearchLeg]) -> TripType:
+    "Infer the commercial trip shape from canonical search legs."
+    if len(legs) <= 1:
+        return TripType.ONE_WAY
+
+    if len(legs) >= 3:
+        return TripType.MULTI_CITY
+
+    outbound, inbound = legs
+    closes_destination = locations_equivalent(
+        outbound.destination, inbound.origin
+    )
+    closes_origin = locations_equivalent(
+        outbound.origin, inbound.destination
+    )
+    if closes_destination and closes_origin:
+        return TripType.ROUND_TRIP
+    return TripType.OPEN_JAW
 
 
 class QuoteSearchRequest(BaseModel):

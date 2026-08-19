@@ -322,9 +322,24 @@ loadHistory();
 
 function renderInterpretation(i){
   const req=i.search_request || {};
-  const items=[
-    ["Ruta",`${req.origin||""} → ${req.destination||""}`],
-    ["Fechas",`${req.departure_date||""}${req.return_date?" / "+req.return_date:""}`],
+  const legs=req.legs||[];
+
+  const items=[];
+
+  if(legs.length){
+    const itinerary=legs.map((leg,index)=>
+      `${index+1}. ${leg.origin||""} → ${leg.destination||""} · ${leg.departure_date||""}`
+    ).join("\n");
+
+    items.push(["Itinerario",itinerary]);
+  }else{
+    items.push(
+      ["Ruta",`${req.origin||""} → ${req.destination||""}`],
+      ["Fechas",`${req.departure_date||""}${req.return_date?" / "+req.return_date:""}`],
+    );
+  }
+
+  items.push(
     ["Pasajeros",(req.passengers||[]).map(p=>`${p.type}${p.age!=null?" "+p.age:""} ×${p.quantity}`).join(", ") || `${req.adults||1} ADT`],
     ["Directo",req.direct?"Sí":"No"],
     ["Aerolíneas",(req.carriers||[]).join(", ")||"Cualquiera"],
@@ -332,7 +347,7 @@ function renderInterpretation(i){
     ["Moneda",req.currency||"AUTO"],
     ["Cabinas",(req.cabins||[]).join(", ") || req.cabin || "—"],
     ["Tarifa",req.fare_preference||"auto"],
-  ];
+  );
 
   if(req.time_constraints?.length){
     items.push([
@@ -340,7 +355,7 @@ function renderInterpretation(i){
       req.time_constraints.map(fmtTimeConstraint).join(" · ")
     ]);
   }
-  let html=`<h3>Interpretación</h3><div class="interpret">${items.map(x=>`<div class="chip"><strong>${esc(x[0])}</strong><br>${esc(x[1])}</div>`).join("")}</div>`;
+  let html=`<h3>Interpretación</h3><div class="interpret">${items.map(x=>`<div class="chip"><strong>${esc(x[0])}</strong><br>${esc(x[1]).replace(/\n/g,"<br>")}</div>`).join("")}</div>`;
   if(i.assumptions?.length) html+=`<div class="status warn">${i.assumptions.map(esc).join("<br>")}</div>`;
   if(i.warnings?.length) html+=`<div class="status err">${i.warnings.map(esc).join("<br>")}</div>`;
   const el=document.getElementById("interpretation"); el.innerHTML=html; el.classList.remove("hidden");
@@ -364,7 +379,7 @@ function farePriceHtml(f){
   );
 
   if(!mixed){
-    return `${farePriceHtml(f)}`;
+    return `<strong>${esc(money(f.price_per_passenger,f.currency))}</strong>`;
   }
 
   const rows=pax.map(p=>
