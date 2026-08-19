@@ -379,7 +379,7 @@ function farePriceHtml(f){
   );
 
   if(!mixed){
-    return `${farePriceHtml(f)}`;
+    return `<strong>${esc(money(f.price_per_passenger,f.currency))}</strong>`;
   }
 
   const rows=pax.map(p=>
