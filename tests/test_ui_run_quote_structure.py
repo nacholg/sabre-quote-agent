@@ -12,5 +12,5 @@ def test_run_quote_structure_is_not_corrupted():
 def test_run_quote_keeps_expected_flow():
     html = Path("app/web/index.html").read_text(encoding="utf-8")
     assert "if(data.quote){" in html
-    assert "renderQuote(data.quote);" in html
+    assert "renderQuote(data.quote,currentCommercialQuote);" in html
     assert "await loadHistory();" in html
