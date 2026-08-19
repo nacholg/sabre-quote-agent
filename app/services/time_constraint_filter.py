@@ -11,6 +11,7 @@ from app.models.quote_request import (
     TimeConstraintMode,
     TimeEvent,
 )
+from app.services.location_resolver import location_matches
 from app.services.normalizer import itinerary_signature
 
 
@@ -40,16 +41,25 @@ def _split_option_legs(
             leg_segments.append(segment)
             cursor += 1
 
-            if segment.arrival_airport.upper() == leg.destination.upper():
+            if location_matches(
+                leg.destination,
+                segment.arrival_airport,
+            ):
                 break
 
         if not leg_segments:
             return []
 
-        if leg_segments[0].departure_airport.upper() != leg.origin.upper():
+        if not location_matches(
+            leg.origin,
+            leg_segments[0].departure_airport,
+        ):
             return []
 
-        if leg_segments[-1].arrival_airport.upper() != leg.destination.upper():
+        if not location_matches(
+            leg.destination,
+            leg_segments[-1].arrival_airport,
+        ):
             return []
 
         result.append(leg_segments)
