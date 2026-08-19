@@ -6,11 +6,13 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 from app.models.api import AgentQuoteRequest, AgentQuoteResponse, FareRuleAuditResponse, QuoteRenderResponse, QuoteSearchAPIRequest, QuoteSearchAPIResponse, QuoteSelectionRequest, QuoteSelectionResponse, StoredQuoteRecord, StoredQuoteSummary, QuoteWorkflowUpdate, QuoteWorkflowResponse, QuoteRefreshResponse
+from app.models.commercial_quote import CommercialQuote
 from app.sabre.errors import SabreError
 from app.services.quote_service import search_quote
 from app.services.agent_service import agent_quote
 from app.services.quote_repository import get_quote_repository
 from app.services.commercial_renderer import render_stored_quote
+from app.services.commercial_quote_builder import build_commercial_quote
 from app.services.live_air_rules_audit import audit_stored_quote_live
 from app.services.fare_rule_response import prepare_fare_rule_response
 from app.services.reference_repository import get_reference_repository
@@ -74,6 +76,34 @@ async def get_quote(quote_id: str) -> StoredQuoteRecord:
         raise HTTPException(status_code=404, detail=f"Cotización no encontrada: {quote_id}")
     return record
 
+
+
+@app.get(
+    "/quotes/{quote_id}/commercial",
+    response_model=CommercialQuote,
+    summary="Cotización comercial canónica",
+)
+async def get_commercial_quote(
+    quote_id: str,
+    selected_only: bool = False,
+) -> CommercialQuote:
+    record = get_quote_repository().get(quote_id)
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Cotización no encontrada: {quote_id}",
+        )
+
+    try:
+        return build_commercial_quote(
+            record,
+            selected_only=selected_only,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
 
 
 @app.post("/quotes/{quote_id}/select", response_model=QuoteSelectionResponse)

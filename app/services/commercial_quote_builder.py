@@ -40,7 +40,18 @@ def _fare_key(rank: int, fare_like) -> tuple[int, str, str, str]:
     )
 
 
-def _selected_items(record: StoredQuoteRecord) -> list[dict]:
+def _quote_items(
+    record: StoredQuoteRecord,
+    *,
+    selected_only: bool,
+) -> list[dict]:
+    options = list(
+        record.quote_response.get("options") or []
+    )
+
+    if not selected_only:
+        return options
+
     if not record.selected_ranks:
         raise ValueError(
             "La cotización no tiene opciones seleccionadas. "
@@ -49,16 +60,25 @@ def _selected_items(record: StoredQuoteRecord) -> list[dict]:
 
     by_rank = {
         int(item["rank"]): item
-        for item in (record.quote_response.get("options") or [])
+        for item in options
         if item.get("rank") is not None
     }
-    missing = [rank for rank in record.selected_ranks if rank not in by_rank]
+
+    missing = [
+        rank
+        for rank in record.selected_ranks
+        if rank not in by_rank
+    ]
     if missing:
         raise ValueError(
             "La selección guardada referencia opciones inexistentes: "
             + ", ".join(str(rank) for rank in missing)
         )
-    return [by_rank[rank] for rank in record.selected_ranks]
+
+    return [
+        by_rank[rank]
+        for rank in record.selected_ranks
+    ]
 
 
 def _commercial_fares(option: ItineraryOption) -> list[FareOption]:
@@ -73,18 +93,32 @@ def _commercial_fares(option: ItineraryOption) -> list[FareOption]:
     return fares or [option.fare]
 
 
-def _commercial_rule_map(record: StoredQuoteRecord) -> dict:
+def _commercial_rule_map(
+    record: StoredQuoteRecord,
+    *,
+    selected_only: bool,
+) -> dict:
     try:
-        audit = audit_stored_quote_live(record, selected_only=True)
+        audit = audit_stored_quote_live(
+            record,
+            selected_only=selected_only,
+        )
     except Exception:
         return {}
 
     result = {}
     for option in audit.options:
         for fare in option.fares:
-            summary = getattr(fare, "commercial_summary", None)
+            summary = getattr(
+                fare,
+                "commercial_summary",
+                None,
+            )
             if summary is not None:
-                result[_fare_key(option.rank, fare)] = summary
+                result[
+                    _fare_key(option.rank, fare)
+                ] = summary
+
     return result
 
 
@@ -265,20 +299,34 @@ def _request_trip_shape(
 
 def build_commercial_quote(
     record: StoredQuoteRecord,
+    *,
+    selected_only: bool = True,
 ) -> CommercialQuote:
-    items = _selected_items(record)
-    summaries = _commercial_rule_map(record)
-    legs, trip_type = _request_trip_shape(record.search_request)
+    items = _quote_items(
+        record,
+        selected_only=selected_only,
+    )
+    summaries = _commercial_rule_map(
+        record,
+        selected_only=selected_only,
+    )
+    legs, trip_type = _request_trip_shape(
+        record.search_request
+    )
 
     options: list[CommercialOption] = []
 
     for item in items:
         rank = int(item["rank"])
-        itinerary = ItineraryOption.model_validate(item["itinerary"])
+        itinerary = ItineraryOption.model_validate(
+            item["itinerary"]
+        )
 
         labels = [
             getattr(label, "value", label)
-            for label in (item.get("commercial_labels") or [])
+            for label in (
+                item.get("commercial_labels") or []
+            )
         ]
 
         options.append(
@@ -286,12 +334,23 @@ def build_commercial_quote(
                 rank=rank,
                 score=item.get("score"),
                 stops=item.get("stops"),
-                duration_minutes=item.get("duration_minutes"),
-                commercial_labels=[str(label) for label in labels],
+                duration_minutes=item.get(
+                    "duration_minutes"
+                ),
+                commercial_labels=[
+                    str(label)
+                    for label in labels
+                ],
                 segments=itinerary.segments,
                 fares=[
-                    _commercial_fare(rank, fare, summaries)
-                    for fare in _commercial_fares(itinerary)
+                    _commercial_fare(
+                        rank,
+                        fare,
+                        summaries,
+                    )
+                    for fare in _commercial_fares(
+                        itinerary
+                    )
                 ],
             )
         )
@@ -299,7 +358,10 @@ def build_commercial_quote(
     return CommercialQuote(
         quote_id=record.quote_id,
         environment=str(
-            record.quote_response.get("environment") or ""
+            record.quote_response.get(
+                "environment"
+            )
+            or ""
         ).upper(),
         trip_type=trip_type,
         legs=legs,
