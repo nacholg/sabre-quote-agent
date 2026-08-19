@@ -641,7 +641,10 @@ _MONTH_ABBR = {
 def _parse_compact_date_token(token: str, today: date) -> date | None:
     value = token.strip().upper()
 
-    match = re.fullmatch(r"(\d{1,2})([A-Z]{3})(20\d{2})?", value)
+    match = re.fullmatch(
+        r"(\d{1,2})\s*([A-Z]{3})(?:\s*(20\d{2}))?",
+        value,
+    )
     if match:
         day_text, month_text, year_text = match.groups()
         month = _MONTH_ABBR.get(month_text)
@@ -675,7 +678,6 @@ def _parse_compact_date_token(token: str, today: date) -> date | None:
     return None
 
 
-
 def _parse_compact_dates_in_text(
     text: str,
     today: date,
@@ -684,7 +686,7 @@ def _parse_compact_dates_in_text(
 
     for match in re.finditer(
         r"\b("
-        r"\d{1,2}[A-Za-z]{3}(?:20\d{2})?"
+        r"\d{1,2}\s*[A-Za-z]{3}(?:\s*20\d{2})?"
         r"|"
         r"\d{1,2}[/-]\d{1,2}(?:[/-]20\d{2})?"
         r")\b",
@@ -698,6 +700,7 @@ def _parse_compact_dates_in_text(
             values.append(parsed)
 
     return values
+
 
 def _explicit_route_occurrences(text: str) -> list[tuple[int, int, str, str]]:
     return [
@@ -736,7 +739,7 @@ def _parse_explicit_trip_legs(
 
         date_match = re.search(
             r"\b("
-            r"\d{1,2}[A-Za-z]{3}(?:20\d{2})?"
+            r"\d{1,2}\s*[A-Za-z]{3}(?:\s*20\d{2})?"
             r"|"
             r"\d{1,2}[/-]\d{1,2}(?:[/-]20\d{2})?"
             r")\b",
@@ -885,10 +888,20 @@ def parse_agent_quote(
     assumptions.extend(date_assumptions)
 
     compact_dates = _parse_compact_dates_in_text(text, today)
+    departure_was_already_known = departure is not None
+
     if departure is None and compact_dates:
         departure = compact_dates[0]
-    if return_date is None and len(compact_dates) >= 2:
-        return_date = compact_dates[1]
+
+    if return_date is None:
+        if len(compact_dates) >= 2:
+            return_date = compact_dates[1]
+        elif (
+            departure_was_already_known
+            and compact_dates
+            and compact_dates[0] != departure
+        ):
+            return_date = compact_dates[0]
 
     time_constraints, inferred_departure, inferred_return, time_assumptions = parse_time_constraints(
         text,
@@ -902,7 +915,7 @@ def parse_agent_quote(
         return_date = inferred_return
 
     explicit_legs = _parse_explicit_trip_legs(text, today)
-    if explicit_legs:
+    if len(explicit_legs) >= 2:
         departure = explicit_legs[0].departure_date
         if len(explicit_legs) == 2:
             return_date = explicit_legs[1].departure_date
