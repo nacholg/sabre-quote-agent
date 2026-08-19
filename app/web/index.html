@@ -57,6 +57,9 @@
     .fare{border:1px solid var(--line);border-radius:10px;padding:12px;background:#fafcff}
     .fare strong{display:block;margin-bottom:5px}
     .price{font-size:18px;font-weight:800;margin:6px 0}
+    .pax-prices{margin:8px 0;font-size:13px}
+    .pax-price,.pax-total{display:flex;justify-content:space-between;gap:12px;padding:3px 0}
+    .pax-total{border-top:1px solid var(--line);margin-top:5px;padding-top:7px;font-weight:750}
     .actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:14px}
     .history-item{border:1px solid var(--line);border-radius:10px;padding:10px;margin:8px 0;background:white;cursor:pointer}
     .history-item:hover{border-color:#aab8ca}
@@ -343,6 +346,39 @@ function renderInterpretation(i){
   const el=document.getElementById("interpretation"); el.innerHTML=html; el.classList.remove("hidden");
 }
 
+
+function passengerPriceLabel(p){
+  const type=String(p?.passenger_type||"").toUpperCase();
+  if(type==="ADT")return "Adulto";
+  if(type==="INF")return "Infante";
+  const child=type.match(/^C(\d{1,2})$/);
+  if(child)return `Niño ${Number(child[1])} años`;
+  if(type==="CHD"||type==="CNN")return "Niño";
+  return type||"Pasajero";
+}
+
+function farePriceHtml(f){
+  const pax=f?.passenger_prices||[];
+  const mixed=pax.length>1 || pax.some(
+    p=>String(p.passenger_type||"").toUpperCase()!=="ADT"
+  );
+
+  if(!mixed){
+    return `${farePriceHtml(f)}`;
+  }
+
+  const rows=pax.map(p=>
+    `<div class="pax-price"><span>${esc(passengerPriceLabel(p))} ×${Number(p.quantity||1)}</span>`+
+    `<strong>${esc(money(p.unit_price,p.currency||f.currency))}</strong></div>`
+  ).join("");
+
+  const total=f.total_price!=null
+    ? `<div class="pax-total"><span>Total</span><strong>${esc(money(f.total_price,f.currency))}</strong></div>`
+    : "";
+
+  return `<div class="pax-prices">${rows}${total}</div>`;
+}
+
 function allCommercialFares(it){
   const by=it.fare_options_by_currency||{};
   let fares=[];
@@ -488,10 +524,11 @@ async function auditRules(){
     const rows=[];
     (data.options||[]).forEach(o=>(o.fares||[]).forEach(f=>{
       rows.push(`<div class="fare"><strong>Opción ${o.rank} · ${esc(f.brand_name||f.cabin)}</strong>
-      <div class="rule ${f.baggage.confidence==="high"?"high":"unknown"}">Equipaje: ${esc(f.baggage.text)}</div>
-      <div class="rule ${f.changes.confidence==="high"?"high":"unknown"}">Cambios: ${esc(f.changes.text)}</div>
-      <div class="rule ${f.refunds.confidence==="high"?"high":"unknown"}">Devoluciones: ${esc(f.refunds.text)}</div>
-      <div class="rule ${f.ticketing.confidence==="high"?"high":"unknown"}">Emisión: ${esc(f.ticketing.text)}</div></div>`);
+      <div class="rule ${f.baggage.confidence==="high"?"high":"unknown"}">Equipaje: ${esc(fareRuleCommercialText(f, "baggage", f.baggage))}</div>
+      <div class="rule ${f.changes.confidence==="high"?"high":"unknown"}">Cambios: ${esc(fareRuleCommercialText(f, "changes", f.changes))}</div>
+      <div class="rule ${f.refunds.confidence==="high"?"high":"unknown"}">Devoluciones: ${esc(fareRuleCommercialText(f, "refunds", f.refunds))}</div>
+${fareRuleCommercialText(f, "no_show") ? `<div class="rule high">No-show: ${esc(fareRuleCommercialText(f, "no_show"))}</div>` : ""}
+      </div>`);
     }));
     document.getElementById("previewTitle").textContent="Auditoría de reglas";
     let ruleStatus="Reglas suficientes para los conceptos auditados.";
@@ -540,6 +577,26 @@ async function openQuote(id){
 }
 
 loadHistory();
+
+function fareRuleCommercialText(fare, key, fallbackDatum = null) {
+  const summary = fare?.commercial_summary || {};
+  const commercial = summary?.[key];
+
+  if (typeof commercial === "string" && commercial.trim()) {
+    return commercial.trim();
+  }
+
+  if (
+    fallbackDatum &&
+    typeof fallbackDatum.text === "string" &&
+    fallbackDatum.text.trim()
+  ) {
+    return fallbackDatum.text.trim();
+  }
+
+  return "";
+}
+
 </script>
 </body>
 </html>

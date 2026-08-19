@@ -11,7 +11,8 @@ from app.services.quote_service import search_quote
 from app.services.agent_service import agent_quote
 from app.services.quote_repository import get_quote_repository
 from app.services.commercial_renderer import render_stored_quote
-from app.services.fare_rule_reliability import audit_stored_quote
+from app.services.live_air_rules_audit import audit_stored_quote_live
+from app.services.fare_rule_response import prepare_fare_rule_response
 from app.services.reference_repository import get_reference_repository
 from app.services.quote_refresh import refresh_stored_quote
 
@@ -158,11 +159,16 @@ async def render_quote_email(quote_id: str) -> HTMLResponse:
 async def quote_fare_rules(
     quote_id: str,
     selected_only: bool = True,
+    include_source_text: bool = False,
 ) -> FareRuleAuditResponse:
     record = get_quote_repository().get(quote_id)
     if record is None:
         raise HTTPException(status_code=404, detail=f"Cotización no encontrada: {quote_id}")
-    return audit_stored_quote(record, selected_only=selected_only)
+    response = audit_stored_quote_live(record, selected_only=selected_only)
+    return prepare_fare_rule_response(
+        response,
+        include_source_text=include_source_text,
+    )
 
 
 @app.get("/reference/stats", summary="Estadísticas del catálogo local")

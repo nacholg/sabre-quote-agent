@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -299,6 +301,100 @@ def _normalize_fare(
 
     passenger_total = passenger_info.get("passengerTotalFare") or {}
     total_fare = fare.get("totalFare") or {}
+
+    from app.models.itinerary import PassengerPrice
+
+    raw_passenger_prices: list[
+        tuple[str, int, int | None, dict[str, Any], Decimal]
+    ] = []
+
+    for passenger_entry in passenger_info_list:
+        info = passenger_entry.get("passengerInfo") or {}
+
+        ptc = str(
+            info.get("passengerType")
+            or info.get("passengerTypeCode")
+            or info.get("requestedPassengerType")
+            or passenger_entry.get("passengerType")
+            or "ADT"
+        ).upper()
+
+        quantity_raw = (
+            info.get("passengerNumber")
+            or info.get("passengerCount")
+            or info.get("quantity")
+            or passenger_entry.get("passengerNumber")
+            or passenger_entry.get("quantity")
+            or 1
+        )
+        try:
+            quantity = max(1, int(quantity_raw))
+        except (TypeError, ValueError):
+            quantity = 1
+
+        age = None
+        age_match = re.fullmatch(r"C(\d{1,2})", ptc)
+        if age_match:
+            age = int(age_match.group(1))
+
+        ptc_total = info.get("passengerTotalFare") or {}
+        raw_total = _decimal(ptc_total.get("totalFare"))
+        if raw_total is None:
+            continue
+
+        raw_passenger_prices.append(
+            (ptc, quantity, age, ptc_total, raw_total)
+        )
+
+    global_total = _decimal(total_fare.get("totalPrice"))
+    passenger_prices: list[PassengerPrice] = []
+
+    group_total_mode = False
+    if raw_passenger_prices and global_total is not None:
+        summed_raw = sum(
+            (row[4] for row in raw_passenger_prices),
+            Decimal("0"),
+        )
+        summed_unit_times_qty = sum(
+            (row[4] * row[1] for row in raw_passenger_prices),
+            Decimal("0"),
+        )
+        group_total_mode = (
+            abs(summed_raw - global_total)
+            < abs(summed_unit_times_qty - global_total)
+        )
+
+    for ptc, quantity, age, ptc_total, raw_total in raw_passenger_prices:
+        if group_total_mode and quantity > 0:
+            unit_price = raw_total / Decimal(quantity)
+            ptc_group_total = raw_total
+        else:
+            unit_price = raw_total
+            ptc_group_total = raw_total * Decimal(quantity)
+
+        ptc_currency = (
+            ptc_total.get("currency")
+            or total_fare.get("currency")
+            or "USD"
+        )
+
+        passenger_prices.append(
+            PassengerPrice(
+                passenger_type=ptc,
+                quantity=quantity,
+                age=age,
+                currency=ptc_currency,
+                unit_price=unit_price,
+                total_price=ptc_group_total,
+                total_tax=_decimal(
+                    ptc_total.get("totalTaxAmount")
+                ),
+                base_fare_amount=_decimal(
+                    ptc_total.get("baseFareAmount")
+                ),
+            )
+        )
+
     conversion = passenger_info.get("currencyConversion") or {}
     currency = passenger_total.get("currency") or total_fare.get("currency") or "USD"
     price_per_passenger = Decimal(str(passenger_total.get("totalFare", total_fare.get("totalPrice", 0))))
@@ -369,6 +465,7 @@ def _normalize_fare(
         currency=currency,
         price_per_passenger=price_per_passenger,
         total_price=total_price,
+        passenger_prices=passenger_prices,
         total_tax=total_tax,
         base_fare_amount=_decimal(passenger_total.get("baseFareAmount")),
         base_fare_currency=passenger_total.get("baseFareCurrency"),

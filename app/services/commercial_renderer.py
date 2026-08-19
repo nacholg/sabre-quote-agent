@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from html import escape
+import re
 
 from app.models.api import QuoteRenderResponse, StoredQuoteRecord
+from app.services.live_air_rules_audit import audit_stored_quote_live
 from app.models.itinerary import FareOption, ItineraryOption
 from app.services.quote_renderer import (
     AIRLINES,
@@ -60,12 +62,156 @@ def _commercial_fares(option: ItineraryOption) -> list[FareOption]:
     return fares or [option.fare]
 
 
-def _fare_lines(fare: FareOption, option: ItineraryOption) -> list[str]:
+def _price_key(value) -> str:
+    try:
+        from decimal import Decimal
+        return str(Decimal(str(value)).quantize(Decimal("0.01")))
+    except Exception:
+        return str(value or "")
+
+
+def _fare_key(rank: int, fare_like) -> tuple[int, str, str, str]:
+    brand = (
+        getattr(fare_like, "brand_name", None)
+        or getattr(fare_like, "brand_code", None)
+        or ""
+    ).strip().upper()
+    return (
+        int(rank),
+        brand,
+        (getattr(fare_like, "currency", None) or "").strip().upper(),
+        _price_key(getattr(fare_like, "price_per_passenger", None)),
+    )
+
+
+def _commercial_rule_map(record: StoredQuoteRecord) -> dict:
+    """
+    Resolve Air Fare Rules once for the selected quote.
+    Any SOAP/AirRules failure falls back to the existing renderer behavior.
+    """
+    try:
+        audit = audit_stored_quote_live(record, selected_only=True)
+    except Exception:
+        return {}
+
+    result = {}
+    for option in audit.options:
+        for fare in option.fares:
+            summary = getattr(fare, "commercial_summary", None)
+            if summary is not None:
+                result[_fare_key(option.rank, fare)] = summary
+    return result
+
+
+def _without_prefix(value: str | None, *prefixes: str) -> str:
+    text = (value or "").strip()
+    lower = text.lower()
+    for prefix in prefixes:
+        if lower.startswith(prefix.lower()):
+            return text[len(prefix):].lstrip(" :;-")
+    return text
+
+
+def _passenger_label(passenger) -> str:
+    ptc = str(
+        getattr(passenger, "passenger_type", "") or ""
+    ).upper()
+    if ptc == "ADT":
+        return "Adulto"
+    if ptc == "INF":
+        return "Infante"
+    match = re.fullmatch(r"C(\d{1,2})", ptc)
+    if match:
+        return f"Niño {int(match.group(1))} años"
+    if ptc in {"CHD", "CNN"}:
+        return "Niño"
+    return ptc or "Pasajero"
+
+
+def _passenger_price_lines(fare: FareOption) -> list[str]:
+    passenger_prices = list(
+        getattr(fare, "passenger_prices", None) or []
+    )
+
+    mixed = (
+        len(passenger_prices) > 1
+        or any(
+            str(getattr(p, "passenger_type", "")).upper()
+            != "ADT"
+            for p in passenger_prices
+        )
+    )
+
+    if not mixed:
+        return [
+            f"{fare.currency} "
+            f"{_money(fare.price_per_passenger, fare.currency)}"
+        ]
+
+    lines = []
+    for passenger in passenger_prices:
+        currency = passenger.currency or fare.currency
+        lines.append(
+            f"{_passenger_label(passenger)} "
+            f"×{passenger.quantity}: "
+            f"{currency} "
+            f"{_money(passenger.unit_price, currency)}"
+        )
+
+    if fare.total_price is not None:
+        lines.append(
+            f"Total: {fare.currency} "
+            f"{_money(fare.total_price, fare.currency)}"
+        )
+
+    return lines
+
+
+def _fare_lines(
+    fare: FareOption,
+    option: ItineraryOption,
+    *,
+    commercial_summary=None,
+) -> list[str]:
     label = fare.brand_name or fare.brand_code or fare.cabin.upper()
-    lines = [f"{label} — {fare.currency} {_money(fare.price_per_passenger, fare.currency)}"]
-    lines.append(f"Equipaje: {_fare_baggage_line(fare)}")
-    for feature in _commercial_brand_features(fare):
-        lines.append(feature)
+    passenger_price_lines = _passenger_price_lines(fare)
+    mixed_passengers = len(passenger_price_lines) > 1
+
+    if mixed_passengers:
+        lines = [label]
+        lines.extend(passenger_price_lines)
+    else:
+        lines = [f"{label} — {passenger_price_lines[0]}"]
+
+    if commercial_summary is not None:
+        baggage = _without_prefix(
+            getattr(commercial_summary, "baggage", None), "Equipaje"
+        )
+        changes = _without_prefix(
+            getattr(commercial_summary, "changes", None), "Cambios"
+        )
+        refunds = _without_prefix(
+            getattr(commercial_summary, "refunds", None),
+            "Devoluciones",
+            "Devolución",
+        )
+        no_show = _without_prefix(
+            getattr(commercial_summary, "no_show", None), "No-show"
+        )
+
+        if baggage:
+            lines.append(f"Equipaje: {baggage}")
+        if changes:
+            lines.append(f"Cambios: {changes}")
+        if refunds:
+            lines.append(f"Devolución: {refunds}")
+        if no_show:
+            lines.append(f"No-show: {no_show}")
+    else:
+        lines.append(f"Equipaje: {_fare_baggage_line(fare)}")
+        for feature in _commercial_brand_features(fare):
+            lines.append(feature)
+
     if fare.currency == "ARS" and not option.is_domestic_argentina and fare.q1_amount is not None:
         lines.append(
             f"Q1 incluido: {fare.q1_currency or 'ARS'} "
@@ -76,6 +222,7 @@ def _fare_lines(fare: FareOption, option: ItineraryOption) -> list[str]:
 
 def render_whatsapp(record: StoredQuoteRecord) -> str:
     items = _selected_items(record)
+    summaries = _commercial_rule_map(record)
     request = record.search_request
     route = f"{request.get('origin', '')} – {request.get('destination', '')}".strip()
     departure = request.get("departure_date") or ""
@@ -89,6 +236,7 @@ def render_whatsapp(record: StoredQuoteRecord) -> str:
     lines.append("")
 
     for number, item in enumerate(items, start=1):
+        rank = int(item["rank"])
         option = ItineraryOption.model_validate(item["itinerary"])
         lines.append(f"*Opción {number}*")
         for segment in option.segments:
@@ -106,7 +254,14 @@ def render_whatsapp(record: StoredQuoteRecord) -> str:
             )
         lines.append("")
         for fare in _commercial_fares(option):
-            lines.extend(_fare_lines(fare, option))
+            summary = summaries.get(_fare_key(rank, fare))
+            lines.extend(
+                _fare_lines(
+                    fare,
+                    option,
+                    commercial_summary=summary,
+                )
+            )
             lines.append("")
         lines.append("")
 
@@ -117,6 +272,7 @@ def render_whatsapp(record: StoredQuoteRecord) -> str:
 
 def render_email_html(record: StoredQuoteRecord) -> str:
     items = _selected_items(record)
+    summaries = _commercial_rule_map(record)
     request = record.search_request
     route = f"{request.get('origin', '')} – {request.get('destination', '')}".strip()
     dates = str(request.get("departure_date") or "")
@@ -125,6 +281,7 @@ def render_email_html(record: StoredQuoteRecord) -> str:
 
     option_html: list[str] = []
     for number, item in enumerate(items, start=1):
+        rank = int(item["rank"])
         option = ItineraryOption.model_validate(item["itinerary"])
         segments = "".join(
             "<tr>"
@@ -139,7 +296,12 @@ def render_email_html(record: StoredQuoteRecord) -> str:
 
         fares_html: list[str] = []
         for fare in _commercial_fares(option):
-            lines = _fare_lines(fare, option)
+            summary = summaries.get(_fare_key(rank, fare))
+            lines = _fare_lines(
+                fare,
+                option,
+                commercial_summary=summary,
+            )
             title = escape(lines[0])
             details = "".join(f"<li>{escape(line)}</li>" for line in lines[1:])
             fares_html.append(
