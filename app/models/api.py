@@ -16,6 +16,7 @@ from app.models.quote_request import (
     SearchLeg,
     TimeConstraint,
     TripType,
+    infer_trip_type,
 )
 from app.services.pricing_rules import PricingCurrency
 from app.services.ranking import CommercialLabel, RankingMode
@@ -122,9 +123,7 @@ class QuoteSearchAPIRequest(BaseModel):
             origin = self.legs[0].origin
             destination = self.legs[0].destination
             departure_date = self.legs[0].departure_date
-            trip_type = self.trip_type or (
-                TripType.CIRCLE_TRIP if len(self.legs) >= 3 else TripType.OPEN_JAW
-            )
+            trip_type = self.trip_type or infer_trip_type(self.legs)
             return_date = None
         else:
             assert self.origin and self.destination and self.departure_date

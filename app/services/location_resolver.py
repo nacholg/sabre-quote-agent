@@ -32,6 +32,13 @@ def is_city_location(code: str) -> bool:
     return repo.airport(requested) is None and bool(airports)
 
 
+def locations_equivalent(left: str, right: str) -> bool:
+    "Return True when two requested location codes represent overlapping airports."
+    left_airports = set(airports_for_location(left))
+    right_airports = set(airports_for_location(right))
+    return bool(left_airports and right_airports and left_airports & right_airports)
+
+
 def location_matches(requested: str, actual_airport: str) -> bool:
     actual = actual_airport.upper().strip()
     return actual in airports_for_location(requested)
