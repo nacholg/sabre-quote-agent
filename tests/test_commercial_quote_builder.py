@@ -71,8 +71,8 @@ def test_build_commercial_quote_falls_back_when_air_rules_fails():
         quote = build_commercial_quote(_record())
     fare = quote.options[0].fares[0]
     assert fare.rules.baggage == "1 pieza despachada de hasta 23 kg por pasajero."
-    assert fare.rules.changes is None
-    assert fare.rules.refunds is None
+    assert fare.rules.changes == "Cambios: confirmar reglas tarifarias."
+    assert fare.rules.refunds == "Devoluciones: confirmar reglas tarifarias."
     assert fare.rules.no_show is None
 
 
