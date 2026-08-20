@@ -1,0 +1,496 @@
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from app.models.api import (
+    AgentInterpretation,
+    QuoteSearchAPIRequest,
+    QuoteSearchAPIResponse,
+    StoredQuoteRecord,
+    StoredQuoteSummary,
+    QuoteSelectionResponse,
+    QuoteWorkflowResponse,
+)
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _quote_id() -> str:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    return f"Q-{stamp}-{uuid.uuid4().hex[:8].upper()}"
+
+
+class QuoteRepository:
+    def __init__(self, db_path: str | Path | None = None) -> None:
+        configured = db_path or os.getenv("QUOTE_DB_PATH") or "data/quotes.db"
+        self.db_path = Path(configured)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._init_db()
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.db_path)
+        connection.row_factory = sqlite3.Row
+        return connection
+
+    def _init_db(self) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS quotes (
+                    quote_id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    agent_text TEXT,
+                    interpretation_json TEXT,
+                    search_request_json TEXT NOT NULL,
+                    quote_response_json TEXT NOT NULL
+                )
+                """
+            )
+            columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(quotes)").fetchall()
+            }
+            if "selected_ranks_json" not in columns:
+                conn.execute(
+                    "ALTER TABLE quotes ADD COLUMN selected_ranks_json TEXT NOT NULL DEFAULT '[]'"
+                )
+            for column, definition in {
+                "client_name": "TEXT",
+                "client_reference": "TEXT",
+                "notes": "TEXT",
+                "sent_at": "TEXT",
+                "parent_quote_id": "TEXT",
+                "refreshed_quote_id": "TEXT",
+            }.items():
+                if column not in columns:
+                    conn.execute(f"ALTER TABLE quotes ADD COLUMN {column} {definition}")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_quotes_created_at "
+                "ON quotes(created_at DESC)"
+            )
+
+    def create(
+        self,
+        *,
+        request: QuoteSearchAPIRequest,
+        response: QuoteSearchAPIResponse,
+        source: str = "structured",
+        agent_text: str | None = None,
+        interpretation: AgentInterpretation | dict[str, Any] | None = None,
+        parent_quote_id: str | None = None,
+    ) -> str:
+        quote_id = response.quote_id or _quote_id()
+        now = _utc_now()
+        response_copy = response.model_copy(update={"quote_id": quote_id})
+        interpretation_data = (
+            interpretation.model_dump(mode="json")
+            if isinstance(interpretation, AgentInterpretation)
+            else interpretation
+        )
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO quotes (
+                    quote_id, created_at, updated_at, status, source,
+                    agent_text, interpretation_json, search_request_json,
+                    quote_response_json, parent_quote_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    quote_id,
+                    now,
+                    now,
+                    "active",
+                    source,
+                    agent_text,
+                    json.dumps(interpretation_data, ensure_ascii=False)
+                    if interpretation_data is not None else None,
+                    request.model_dump_json(),
+                    response_copy.model_dump_json(),
+                    parent_quote_id,
+                ),
+            )
+        return quote_id
+
+    def attach_agent_context(
+        self,
+        quote_id: str,
+        *,
+        text: str,
+        interpretation: AgentInterpretation,
+    ) -> None:
+        now = _utc_now()
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE quotes
+                SET source = ?, agent_text = ?, interpretation_json = ?, updated_at = ?
+                WHERE quote_id = ?
+                """,
+                (
+                    "agent",
+                    text,
+                    json.dumps(interpretation.model_dump(mode="json"), ensure_ascii=False),
+                    now,
+                    quote_id,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise KeyError(quote_id)
+
+    def get(self, quote_id: str) -> StoredQuoteRecord | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM quotes WHERE quote_id = ?",
+                (quote_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return StoredQuoteRecord(
+            quote_id=row["quote_id"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            status=row["status"],
+            selected_ranks=json.loads(row["selected_ranks_json"] or "[]"),
+            source=row["source"],
+            client_name=row["client_name"],
+            client_reference=row["client_reference"],
+            notes=row["notes"],
+            sent_at=row["sent_at"],
+            parent_quote_id=row["parent_quote_id"],
+            refreshed_quote_id=row["refreshed_quote_id"],
+            agent_text=row["agent_text"],
+            interpretation=json.loads(row["interpretation_json"])
+            if row["interpretation_json"] else None,
+            search_request=json.loads(row["search_request_json"]),
+            quote_response=json.loads(row["quote_response_json"]),
+        )
+
+    def _ensure_artifacts_table(self) -> None:
+        with self._connect() as conn:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS quote_artifacts (
+                    artifact_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    quote_id TEXT NOT NULL,
+                    artifact_type TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    selected_ranks_json TEXT NOT NULL DEFAULT '[]',
+                    content_type TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_quote_artifacts_quote_created
+                ON quote_artifacts(quote_id, artifact_id DESC);
+                """
+            )
+
+    def create_artifact(
+        self,
+        quote_id: str,
+        *,
+        artifact_type: str,
+        title: str,
+        selected_ranks: list[int] | None,
+        content_type: str,
+        content: str,
+    ) -> dict:
+        self._ensure_artifacts_table()
+        created_at = _utc_now()
+        ranks = sorted(
+            {
+                int(rank)
+                for rank in (selected_ranks or [])
+                if int(rank) > 0
+            }
+        )
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO quote_artifacts (
+                    quote_id,
+                    artifact_type,
+                    title,
+                    selected_ranks_json,
+                    content_type,
+                    content,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    quote_id,
+                    artifact_type,
+                    title,
+                    json.dumps(ranks),
+                    content_type,
+                    content,
+                    created_at,
+                ),
+            )
+            artifact_id = int(cursor.lastrowid)
+
+        return {
+            "artifact_id": artifact_id,
+            "quote_id": quote_id,
+            "artifact_type": artifact_type,
+            "title": title,
+            "selected_ranks": ranks,
+            "content_type": content_type,
+            "content": content,
+            "created_at": created_at,
+        }
+
+    def list_artifacts(self, quote_id: str) -> list[dict]:
+        self._ensure_artifacts_table()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    artifact_id,
+                    quote_id,
+                    artifact_type,
+                    title,
+                    selected_ranks_json,
+                    content_type,
+                    content,
+                    created_at
+                FROM quote_artifacts
+                WHERE quote_id = ?
+                ORDER BY artifact_id DESC
+                """,
+                (quote_id,),
+            ).fetchall()
+
+        return [
+            {
+                "artifact_id": int(row["artifact_id"]),
+                "quote_id": row["quote_id"],
+                "artifact_type": row["artifact_type"],
+                "title": row["title"],
+                "selected_ranks": json.loads(
+                    row["selected_ranks_json"] or "[]"
+                ),
+                "content_type": row["content_type"],
+                "content": row["content"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+
+    def delete_artifact(self, quote_id: str, artifact_id: int) -> bool:
+        self._ensure_artifacts_table()
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                DELETE FROM quote_artifacts
+                WHERE quote_id = ? AND artifact_id = ?
+                """,
+                (quote_id, artifact_id),
+            )
+            deleted = int(cursor.rowcount or 0)
+        return deleted > 0
+
+    def clear_artifacts(self, quote_id: str) -> int:
+        self._ensure_artifacts_table()
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM quote_artifacts WHERE quote_id = ?",
+                (quote_id,),
+            )
+            deleted = int(cursor.rowcount or 0)
+        return deleted
+
+
+    def select(self, quote_id: str, ranks: list[int]) -> QuoteSelectionResponse:
+        record = self.get(quote_id)
+        if record is None:
+            raise KeyError(quote_id)
+
+        available_ranks = {
+            int(item.get("rank"))
+            for item in (record.quote_response.get("options") or [])
+            if item.get("rank") is not None
+        }
+        missing = [rank for rank in ranks if rank not in available_ranks]
+        if missing:
+            raise ValueError(
+                "Ranks inexistentes en la cotización: "
+                + ", ".join(str(rank) for rank in missing)
+            )
+
+        normalized = sorted(set(ranks))
+        now = _utc_now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE quotes
+                SET selected_ranks_json = ?, status = ?, updated_at = ?
+                WHERE quote_id = ?
+                """,
+                (
+                    json.dumps(normalized),
+                    "selected",
+                    now,
+                    quote_id,
+                ),
+            )
+
+        return QuoteSelectionResponse(
+            quote_id=quote_id,
+            status="selected",
+            selected_ranks=normalized,
+            selected_count=len(normalized),
+        )
+
+    def clear_selection(self, quote_id: str) -> QuoteSelectionResponse:
+        if self.get(quote_id) is None:
+            raise KeyError(quote_id)
+        now = _utc_now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE quotes
+                SET selected_ranks_json = '[]', status = 'active', updated_at = ?
+                WHERE quote_id = ?
+                """,
+                (now, quote_id),
+            )
+        return QuoteSelectionResponse(
+            quote_id=quote_id,
+            status="active",
+            selected_ranks=[],
+            selected_count=0,
+        )
+
+    def update_workflow(
+        self,
+        quote_id: str,
+        *,
+        client_name: str | None = None,
+        client_reference: str | None = None,
+        notes: str | None = None,
+        status: str | None = None,
+    ) -> QuoteWorkflowResponse:
+        record = self.get(quote_id)
+        if record is None:
+            raise KeyError(quote_id)
+        allowed = {"active", "selected", "ready", "sent", "superseded"}
+        if status is not None and status not in allowed:
+            raise ValueError("Estado inválido.")
+        now = _utc_now()
+        sent_at = record.sent_at
+        if status == "sent" and not sent_at:
+            sent_at = now
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE quotes
+                SET client_name=?, client_reference=?, notes=?,
+                    status=COALESCE(?,status), sent_at=?, updated_at=?
+                WHERE quote_id=?
+                """,
+                (
+                    client_name if client_name is not None else record.client_name,
+                    client_reference if client_reference is not None else record.client_reference,
+                    notes if notes is not None else record.notes,
+                    status,
+                    sent_at,
+                    now,
+                    quote_id,
+                ),
+            )
+        updated = self.get(quote_id)
+        assert updated
+        return QuoteWorkflowResponse(
+            quote_id=updated.quote_id,
+            status=updated.status,
+            client_name=updated.client_name,
+            client_reference=updated.client_reference,
+            notes=updated.notes,
+            sent_at=updated.sent_at,
+            parent_quote_id=updated.parent_quote_id,
+            refreshed_quote_id=updated.refreshed_quote_id,
+        )
+
+    def link_refresh(self, original_quote_id: str, refreshed_quote_id: str) -> None:
+        now = _utc_now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE quotes
+                SET refreshed_quote_id=?, status='superseded', updated_at=?
+                WHERE quote_id=?
+                """,
+                (refreshed_quote_id, now, original_quote_id),
+            )
+
+    def list(self, limit: int = 20) -> list[StoredQuoteSummary]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM quotes ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+
+        summaries: list[StoredQuoteSummary] = []
+        for row in rows:
+            request = json.loads(row["search_request_json"])
+            response = json.loads(row["quote_response_json"])
+            passengers = request.get("passengers") or []
+            if passengers:
+                passenger_count = sum(int(item.get("quantity", 0)) for item in passengers)
+            else:
+                passenger_count = (
+                    int(request.get("adults", 0))
+                    + int(request.get("children", 0))
+                    + int(request.get("infants", 0))
+                )
+            summaries.append(
+                StoredQuoteSummary(
+                    quote_id=row["quote_id"],
+                    created_at=row["created_at"],
+                    updated_at=row["updated_at"],
+                    status=row["status"],
+                    selected_ranks=json.loads(row["selected_ranks_json"] or "[]"),
+                    source=row["source"],
+                    client_name=row["client_name"],
+                    client_reference=row["client_reference"],
+                    parent_quote_id=row["parent_quote_id"],
+                    sent_at=row["sent_at"],
+                    origin=request.get("origin"),
+                    destination=request.get("destination"),
+                    departure_date=request.get("departure_date"),
+                    return_date=request.get("return_date"),
+                    passenger_count=passenger_count,
+                    result_count=int(response.get("result_count", 0)),
+                )
+            )
+        return summaries
+
+
+_repository: QuoteRepository | None = None
+
+
+def get_quote_repository() -> QuoteRepository:
+    global _repository
+    desired = Path(os.getenv("QUOTE_DB_PATH") or "data/quotes.db")
+    if _repository is None or _repository.db_path != desired:
+        _repository = QuoteRepository(desired)
+    return _repository
+
+
+def reset_quote_repository_for_tests() -> None:
+    global _repository
+    _repository = None
