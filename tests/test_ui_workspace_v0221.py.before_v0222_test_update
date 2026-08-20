@@ -20,11 +20,7 @@ def test_workspace_replaces_single_preview():
 def test_outputs_are_accumulated_and_collapsible():
     html = source()
     assert "const artifactsByQuote = {}" in html
-    # v0.22.2 keeps the same accumulated/collapsible workspace contract,
-    # but persistence now goes through persistArtifact() and local hydration
-    # through appendArtifactLocal().
-    assert "function appendArtifactLocal(" in html
-    assert "async function persistArtifact(" in html
+    assert "function appendArtifact(" in html
     assert "function renderArtifacts(" in html
     assert '<details class="artifact-item"' in html
     assert 'type:"whatsapp"' in html

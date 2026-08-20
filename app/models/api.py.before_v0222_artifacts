@@ -292,25 +292,6 @@ class QuoteRenderResponse(BaseModel):
     content: str
 
 
-class QuoteArtifactCreate(BaseModel):
-    artifact_type: Literal["whatsapp", "email", "rules", "reprice"]
-    title: str = Field(min_length=1, max_length=200)
-    selected_ranks: list[int] = Field(default_factory=list)
-    content_type: str = Field(default="text/plain", max_length=100)
-    content: str
-
-
-class QuoteArtifactRecord(BaseModel):
-    artifact_id: int
-    quote_id: str
-    artifact_type: Literal["whatsapp", "email", "rules", "reprice"]
-    title: str
-    selected_ranks: list[int] = Field(default_factory=list)
-    content_type: str
-    content: str
-    created_at: str
-
-
 class FareRuleDatum(BaseModel):
     status: Literal["included", "with_fee", "not_allowed", "allowed", "unknown"]
     source: Literal["brand_feature", "fare_flag", "baggage", "ticketing", "air_rules", "not_provided"]

@@ -216,7 +216,7 @@
           <h2 style="margin:0">Salidas generadas</h2>
           <div class="muted">WhatsApp, Email, reglas y repricing de esta cotización.</div>
         </div>
-        <button class="ghost" onclick="clearPersistedArtifacts()">Limpiar salidas</button>
+        <button class="ghost" onclick="clearSessionArtifacts()">Limpiar sesión</button>
       </div>
       <div id="artifactStack" class="artifact-stack"></div>
     </section>
@@ -360,7 +360,6 @@ async function runQuote(){
     renderInterpretation(data.interpretation);
     currentQuote=data.quote;
     currentQuoteId=data.quote?.quote_id || null;
-    if(currentQuoteId)artifactsByQuote[currentQuoteId]=[];
     renderArtifacts();
 
     if(data.quote){
@@ -425,7 +424,7 @@ async function refreshQuote(){
     }
     const refreshArtifactHtml=`<div class="status ok">Nueva versión: ${esc(r.refreshed_quote_id)}</div><div class="fares">${rows.join("")}</div>`;
     await openQuote(r.refreshed_quote_id);
-    await persistArtifact({
+    appendArtifact({
       type:"reprice",
       title:"Refresh / Reprice",
       html:refreshArtifactHtml,
@@ -697,7 +696,7 @@ function artifactSelectedLabel(ranks){
   return ranks?.length ? `Opciones ${ranks.join(", ")}` : "Sin selección guardada";
 }
 
-function appendArtifactLocal(artifact, quoteId=currentQuoteId){
+function appendArtifact(artifact, quoteId=currentQuoteId){
   if(!quoteId)return;
   artifactSequence+=1;
   artifact.id=artifact.id||`artifact-${Date.now()}-${artifactSequence}`;
@@ -705,98 +704,6 @@ function appendArtifactLocal(artifact, quoteId=currentQuoteId){
   artifact.ranks=artifact.ranks||selectedRanks();
   artifactBucket(quoteId).unshift(artifact);
   if(quoteId===currentQuoteId)renderArtifacts();
-}
-
-function hydrateArtifact(item){
-  const created=item.created_at
-    ? new Date(item.created_at).toLocaleString("es-AR",{
-        day:"2-digit",
-        month:"2-digit",
-        hour:"2-digit",
-        minute:"2-digit",
-        hour12:false
-      })
-    : artifactClock();
-
-  return {
-    id:`db-artifact-${item.artifact_id}`,
-    artifactId:item.artifact_id,
-    type:item.artifact_type,
-    title:item.title,
-    ranks:item.selected_ranks||[],
-    createdAt:created,
-    contentType:item.content_type,
-    text:item.artifact_type==="whatsapp" ? item.content : null,
-    html:item.artifact_type!=="whatsapp" ? item.content : null
-  };
-}
-
-async function loadArtifacts(quoteId=currentQuoteId){
-  if(!quoteId)return;
-  try{
-    const items=await api(`/quotes/${quoteId}/artifacts`);
-    artifactsByQuote[quoteId]=(items||[]).map(hydrateArtifact);
-  }catch(e){
-    console.error("No se pudieron cargar las salidas persistidas",e);
-    artifactsByQuote[quoteId]=[];
-  }
-  if(quoteId===currentQuoteId)renderArtifacts();
-}
-
-async function persistArtifact(artifact, quoteId=currentQuoteId){
-  if(!quoteId)return;
-
-  const content=artifact.type==="whatsapp"
-    ? (artifact.text||"")
-    : (artifact.html||"");
-
-  const saved=await api(`/quotes/${quoteId}/artifacts`,{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({
-      artifact_type:artifact.type,
-      title:artifact.title||artifact.type,
-      selected_ranks:artifact.ranks||selectedRanks(),
-      content_type:
-        artifact.type==="whatsapp"
-          ? "text/plain; charset=utf-8"
-          : "text/html; charset=utf-8",
-      content
-    })
-  });
-
-  appendArtifactLocal(hydrateArtifact(saved),quoteId);
-  return saved;
-}
-
-async function deleteArtifact(artifactId){
-  if(!currentQuoteId || !artifactId)return;
-  if(!confirm("¿Eliminar esta salida generada?"))return;
-
-  try{
-    await api(
-      `/quotes/${currentQuoteId}/artifacts/${artifactId}`,
-      {method:"DELETE"}
-    );
-    await loadArtifacts(currentQuoteId);
-  }catch(e){
-    alert(e.message);
-  }
-}
-
-async function clearPersistedArtifacts(){
-  if(!currentQuoteId)return;
-  if(!confirm("¿Eliminar todas las salidas generadas de esta cotización?"))return;
-
-  try{
-    await api(`/quotes/${currentQuoteId}/artifacts`,{
-      method:"DELETE"
-    });
-    artifactsByQuote[currentQuoteId]=[];
-    renderArtifacts();
-  }catch(e){
-    alert(e.message);
-  }
 }
 
 function renderArtifacts(){
@@ -815,17 +722,13 @@ function renderArtifacts(){
   stack.innerHTML=artifacts.map((a,index)=>{
     const badge={whatsapp:"WhatsApp",email:"Email",rules:"Reglas",reprice:"Reprice"}[a.type]||a.type||"Salida";
     let body="";
-    const deleteButton=a.artifactId
-      ? `<button class="ghost" onclick="deleteArtifact(${Number(a.artifactId)})">Eliminar</button>`
-      : "";
-
     if(a.type==="whatsapp"){
-      body=`<div class="actions"><button class="secondary" onclick="copyArtifact('${esc(a.id)}')">Copiar</button>${deleteButton}</div>`+
+      body=`<div class="actions"><button class="secondary" onclick="copyArtifact('${esc(a.id)}')">Copiar</button></div>`+
         `<div class="preview" data-copy-artifact="${esc(a.id)}">${esc(a.text||"")}</div>`;
     }else if(a.type==="email"){
-      body=`<div class="actions">${deleteButton}</div><iframe data-email-artifact="${esc(a.id)}"></iframe>`;
+      body=`<iframe data-email-artifact="${esc(a.id)}"></iframe>`;
     }else{
-      body=`<div class="actions">${deleteButton}</div>${a.html||""}`;
+      body=a.html||"";
     }
     return `<details class="artifact-item" ${index===0?"open":""}>`+
       `<summary><span class="artifact-summary-main"><span class="artifact-type">${esc(badge)}</span>`+
@@ -846,7 +749,11 @@ function copyArtifact(id){
   navigator.clipboard.writeText(value).then(()=>alert("Copiado."));
 }
 
-
+function clearSessionArtifacts(){
+  if(!currentQuoteId)return;
+  artifactsByQuote[currentQuoteId]=[];
+  renderArtifacts();
+}
 
 async function showWhatsApp(){
   if(!currentQuoteId)return;
@@ -854,7 +761,7 @@ async function showWhatsApp(){
     await ensureSelection();
     const ranks=selectedRanks();
     const output=await api(`/quotes/${currentQuoteId}/whatsapp`);
-    await persistArtifact({type:"whatsapp",title:"WhatsApp",text:output,ranks});
+    appendArtifact({type:"whatsapp",title:"WhatsApp",text:output,ranks});
   }catch(e){alert(e.message);}
 }
 
@@ -864,7 +771,7 @@ async function showEmail(){
     await ensureSelection();
     const ranks=selectedRanks();
     const html=await api(`/quotes/${currentQuoteId}/email`);
-    await persistArtifact({type:"email",title:"Email",html,ranks});
+    appendArtifact({type:"email",title:"Email",html,ranks});
   }catch(e){alert(e.message);}
 }
 
@@ -896,7 +803,7 @@ ${fareRuleCommercialText(f, "no_show") ? `<div class="rule high">No-show: ${esc(
       ruleStatus="Faltan reglas externas para algunos conceptos.";
     }
 
-    await persistArtifact({
+    appendArtifact({
       type:"rules",
       title:"Auditoría de reglas",
       ranks,
@@ -971,7 +878,7 @@ async function openQuote(id){
     document.getElementById("clientName").value=rec.client_name||"";
     document.getElementById("clientReference").value=rec.client_reference||"";
     document.getElementById("quoteNotes").value=rec.notes||"";
-    await loadArtifacts(currentQuoteId);
+    renderArtifacts();
     renderHistory();
   }catch(e){alert(e.message);}
 }

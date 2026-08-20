@@ -7,7 +7,6 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 from app.models.api import AgentQuoteRequest, AgentQuoteResponse, FareRuleAuditResponse, QuoteRenderResponse, QuoteSearchAPIRequest, QuoteSearchAPIResponse, QuoteSelectionRequest, QuoteSelectionResponse, StoredQuoteRecord, StoredQuoteSummary, QuoteWorkflowUpdate, QuoteWorkflowResponse, QuoteRefreshResponse
 from app.models.commercial_quote import CommercialQuote
-from app.models.api import QuoteArtifactCreate, QuoteArtifactRecord
 from app.sabre.errors import SabreError
 from app.services.quote_service import search_quote
 from app.services.agent_service import agent_quote
@@ -105,103 +104,6 @@ async def get_commercial_quote(
             status_code=409,
             detail=str(exc),
         ) from exc
-
-
-@app.get(
-    "/quotes/{quote_id}/artifacts",
-    response_model=list[QuoteArtifactRecord],
-    summary="Salidas persistidas de una cotización",
-)
-async def list_quote_artifacts(
-    quote_id: str,
-) -> list[QuoteArtifactRecord]:
-    repository = get_quote_repository()
-    if repository.get(quote_id) is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Cotización no encontrada: {quote_id}",
-        )
-    return [
-        QuoteArtifactRecord.model_validate(item)
-        for item in repository.list_artifacts(quote_id)
-    ]
-
-
-@app.post(
-    "/quotes/{quote_id}/artifacts",
-    response_model=QuoteArtifactRecord,
-    summary="Guardar una salida generada",
-)
-async def create_quote_artifact(
-    quote_id: str,
-    payload: QuoteArtifactCreate,
-) -> QuoteArtifactRecord:
-    repository = get_quote_repository()
-    if repository.get(quote_id) is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Cotización no encontrada: {quote_id}",
-        )
-
-    item = repository.create_artifact(
-        quote_id,
-        artifact_type=payload.artifact_type,
-        title=payload.title,
-        selected_ranks=payload.selected_ranks,
-        content_type=payload.content_type,
-        content=payload.content,
-    )
-    return QuoteArtifactRecord.model_validate(item)
-
-
-@app.delete(
-    "/quotes/{quote_id}/artifacts/{artifact_id}",
-    summary="Eliminar una salida generada",
-)
-async def delete_quote_artifact(
-    quote_id: str,
-    artifact_id: int,
-) -> dict:
-    repository = get_quote_repository()
-    if repository.get(quote_id) is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Cotización no encontrada: {quote_id}",
-        )
-
-    deleted = repository.delete_artifact(quote_id, artifact_id)
-    if not deleted:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Salida no encontrada: {artifact_id}",
-        )
-
-    return {
-        "quote_id": quote_id,
-        "artifact_id": artifact_id,
-        "deleted": True,
-    }
-
-
-@app.delete(
-    "/quotes/{quote_id}/artifacts",
-    summary="Eliminar todas las salidas de una cotización",
-)
-async def clear_quote_artifacts(
-    quote_id: str,
-) -> dict:
-    repository = get_quote_repository()
-    if repository.get(quote_id) is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Cotización no encontrada: {quote_id}",
-        )
-
-    deleted_count = repository.clear_artifacts(quote_id)
-    return {
-        "quote_id": quote_id,
-        "deleted_count": deleted_count,
-    }
 
 
 @app.post("/quotes/{quote_id}/select", response_model=QuoteSelectionResponse)
