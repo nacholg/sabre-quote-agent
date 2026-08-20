@@ -11,6 +11,7 @@ from app.db.database import get_engine as _dbiso_get_engine
 
 
 _dbiso_os.environ.pop("DATABASE_URL", None)
+_dbiso_os.environ.pop("SABRE_BFM_REQUEST_TYPE", None)
 _dbiso_get_engine.cache_clear()
 
 
@@ -18,6 +19,7 @@ _dbiso_get_engine.cache_clear()
 def _isolate_database_url(monkeypatch):
     """Start every test without an inherited DATABASE_URL."""
     monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("SABRE_BFM_REQUEST_TYPE", raising=False)
     _dbiso_get_engine.cache_clear()
 
     yield

@@ -92,7 +92,18 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings(env_name: Literal["prod", "cert"] = "prod") -> Settings:
+    """Load Sabre settings from a local dotenv file when present.
+
+    Local development keeps the historical behavior:
+      - cert -> .env.cert
+      - prod -> .env
+
+    In deployed environments such as Railway those files are intentionally
+    absent, so Settings falls back to the process environment variables.
+    """
     env_file = Path(".env.cert") if env_name.lower() == "cert" else Path(".env")
-    if not env_file.exists():
-        raise FileNotFoundError(f"No se encontró el archivo {env_file.resolve()}")
-    return Settings(_env_file=env_file)  # type: ignore[call-arg]
+
+    if env_file.exists():
+        return Settings(_env_file=env_file)  # type: ignore[call-arg]
+
+    return Settings(_env_file=None)  # type: ignore[call-arg]
