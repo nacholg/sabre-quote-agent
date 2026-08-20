@@ -47,178 +47,6 @@ def _decimal(value: Any) -> Decimal | None:
     return None if value is None else Decimal(str(value))
 
 
-
-def _q1_from_passenger_info(
-    passenger_info: dict[str, Any],
-    tax_descs: dict[int, dict[str, Any]],
-) -> tuple[Decimal | None, str | None]:
-    amount = Decimal("0")
-    currency: str | None = None
-    found = False
-
-    for tax_ref_entry in passenger_info.get("taxes", []):
-        tax_ref = tax_ref_entry.get("ref")
-        if tax_ref is None:
-            continue
-
-        tax = tax_descs.get(int(tax_ref))
-        if not tax or str(tax.get("code", "")).upper() != "Q1":
-            continue
-
-        found = True
-        amount += Decimal(str(tax.get("amount", 0)))
-        currency = tax.get("currency") or currency
-
-    return (amount, currency) if found else (None, None)
-
-
-def _normalize_passenger_prices(
-    passenger_info_list: list[dict[str, Any]],
-    total_fare: dict[str, Any],
-    tax_descs: dict[int, dict[str, Any]],
-):
-    from app.models.itinerary import PassengerPrice
-
-    raw_passenger_prices: list[
-        tuple[
-            str,
-            int,
-            int | None,
-            dict[str, Any],
-            Decimal,
-            Decimal | None,
-            str | None,
-        ]
-    ] = []
-
-    for passenger_entry in passenger_info_list:
-        info = passenger_entry.get("passengerInfo") or {}
-
-        ptc = str(
-            info.get("passengerType")
-            or info.get("passengerTypeCode")
-            or info.get("requestedPassengerType")
-            or passenger_entry.get("passengerType")
-            or "ADT"
-        ).upper()
-
-        quantity_raw = (
-            info.get("passengerNumber")
-            or info.get("passengerCount")
-            or info.get("quantity")
-            or passenger_entry.get("passengerNumber")
-            or passenger_entry.get("quantity")
-            or 1
-        )
-        try:
-            quantity = max(1, int(quantity_raw))
-        except (TypeError, ValueError):
-            quantity = 1
-
-        age = None
-        age_match = re.fullmatch(r"C(\d{1,2})", ptc)
-        if age_match:
-            age = int(age_match.group(1))
-
-        ptc_total = info.get("passengerTotalFare") or {}
-        raw_total = _decimal(ptc_total.get("totalFare"))
-        if raw_total is None:
-            continue
-
-        raw_q1, q1_currency = _q1_from_passenger_info(
-            info,
-            tax_descs,
-        )
-
-        raw_passenger_prices.append(
-            (
-                ptc,
-                quantity,
-                age,
-                ptc_total,
-                raw_total,
-                raw_q1,
-                q1_currency,
-            )
-        )
-
-    global_total = _decimal(total_fare.get("totalPrice"))
-    passenger_prices: list[PassengerPrice] = []
-
-    # Preserve the existing fare granularity inference and apply
-    # the same interpretation to Q1.
-    group_total_mode = False
-    if raw_passenger_prices and global_total is not None:
-        summed_raw = sum(
-            (row[4] for row in raw_passenger_prices),
-            Decimal("0"),
-        )
-        summed_unit_times_qty = sum(
-            (row[4] * row[1] for row in raw_passenger_prices),
-            Decimal("0"),
-        )
-        group_total_mode = (
-            abs(summed_raw - global_total)
-            < abs(summed_unit_times_qty - global_total)
-        )
-
-    for (
-        ptc,
-        quantity,
-        age,
-        ptc_total,
-        raw_total,
-        raw_q1,
-        q1_currency,
-    ) in raw_passenger_prices:
-        if group_total_mode and quantity > 0:
-            unit_price = raw_total / Decimal(quantity)
-            ptc_group_total = raw_total
-            q1_amount = (
-                raw_q1 / Decimal(quantity)
-                if raw_q1 is not None
-                else None
-            )
-            q1_total = raw_q1
-        else:
-            unit_price = raw_total
-            ptc_group_total = raw_total * Decimal(quantity)
-            q1_amount = raw_q1
-            q1_total = (
-                raw_q1 * Decimal(quantity)
-                if raw_q1 is not None
-                else None
-            )
-
-        ptc_currency = (
-            ptc_total.get("currency")
-            or total_fare.get("currency")
-            or "USD"
-        )
-
-        passenger_prices.append(
-            PassengerPrice(
-                passenger_type=ptc,
-                quantity=quantity,
-                age=age,
-                currency=ptc_currency,
-                unit_price=unit_price,
-                total_price=ptc_group_total,
-                total_tax=_decimal(
-                    ptc_total.get("totalTaxAmount")
-                ),
-                base_fare_amount=_decimal(
-                    ptc_total.get("baseFareAmount")
-                ),
-                q1_amount=q1_amount,
-                q1_total=q1_total,
-                q1_currency=q1_currency or ptc_currency,
-            )
-        )
-
-    return passenger_prices
-
-
 def itinerary_signature(option: ItineraryOption) -> tuple:
     return tuple(
         (
@@ -474,11 +302,98 @@ def _normalize_fare(
     passenger_total = passenger_info.get("passengerTotalFare") or {}
     total_fare = fare.get("totalFare") or {}
 
-    passenger_prices = _normalize_passenger_prices(
-        passenger_info_list,
-        total_fare,
-        tax_descs,
-    )
+    from app.models.itinerary import PassengerPrice
+
+    raw_passenger_prices: list[
+        tuple[str, int, int | None, dict[str, Any], Decimal]
+    ] = []
+
+    for passenger_entry in passenger_info_list:
+        info = passenger_entry.get("passengerInfo") or {}
+
+        ptc = str(
+            info.get("passengerType")
+            or info.get("passengerTypeCode")
+            or info.get("requestedPassengerType")
+            or passenger_entry.get("passengerType")
+            or "ADT"
+        ).upper()
+
+        quantity_raw = (
+            info.get("passengerNumber")
+            or info.get("passengerCount")
+            or info.get("quantity")
+            or passenger_entry.get("passengerNumber")
+            or passenger_entry.get("quantity")
+            or 1
+        )
+        try:
+            quantity = max(1, int(quantity_raw))
+        except (TypeError, ValueError):
+            quantity = 1
+
+        age = None
+        age_match = re.fullmatch(r"C(\d{1,2})", ptc)
+        if age_match:
+            age = int(age_match.group(1))
+
+        ptc_total = info.get("passengerTotalFare") or {}
+        raw_total = _decimal(ptc_total.get("totalFare"))
+        if raw_total is None:
+            continue
+
+        raw_passenger_prices.append(
+            (ptc, quantity, age, ptc_total, raw_total)
+        )
+
+    global_total = _decimal(total_fare.get("totalPrice"))
+    passenger_prices: list[PassengerPrice] = []
+
+    group_total_mode = False
+    if raw_passenger_prices and global_total is not None:
+        summed_raw = sum(
+            (row[4] for row in raw_passenger_prices),
+            Decimal("0"),
+        )
+        summed_unit_times_qty = sum(
+            (row[4] * row[1] for row in raw_passenger_prices),
+            Decimal("0"),
+        )
+        group_total_mode = (
+            abs(summed_raw - global_total)
+            < abs(summed_unit_times_qty - global_total)
+        )
+
+    for ptc, quantity, age, ptc_total, raw_total in raw_passenger_prices:
+        if group_total_mode and quantity > 0:
+            unit_price = raw_total / Decimal(quantity)
+            ptc_group_total = raw_total
+        else:
+            unit_price = raw_total
+            ptc_group_total = raw_total * Decimal(quantity)
+
+        ptc_currency = (
+            ptc_total.get("currency")
+            or total_fare.get("currency")
+            or "USD"
+        )
+
+        passenger_prices.append(
+            PassengerPrice(
+                passenger_type=ptc,
+                quantity=quantity,
+                age=age,
+                currency=ptc_currency,
+                unit_price=unit_price,
+                total_price=ptc_group_total,
+                total_tax=_decimal(
+                    ptc_total.get("totalTaxAmount")
+                ),
+                base_fare_amount=_decimal(
+                    ptc_total.get("baseFareAmount")
+                ),
+            )
+        )
 
     conversion = passenger_info.get("currencyConversion") or {}
     currency = passenger_total.get("currency") or total_fare.get("currency") or "USD"

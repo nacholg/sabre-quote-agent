@@ -15,9 +15,6 @@ class CommercialPassengerPrice(BaseModel):
     currency: str
     unit_price: Decimal
     total_price: Decimal
-    q1_amount: Decimal | None = None
-    q1_total: Decimal | None = None
-    q1_currency: str | None = None
 
 
 class CommercialFareRules(BaseModel):

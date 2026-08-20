@@ -512,129 +512,304 @@ def _carrier_sets(text: str) -> tuple[list[str], list[str]]:
 
 
 def _passengers(text: str) -> tuple[list[PassengerSpec], list[str]]:
+    # Passenger parser v0.21.1.
+    # Supported examples:
+    # - 4 adultos / ADT x4 / 4 ADT
+    # - 4 niños de 9 años / niños de 9 años x4 / C09 x4 / 4 C09
+    # - 1 infante / INF x1 / 1 menor de 1 año
+    # - niños de 9 y 7 años
+    #
+    # "menores de 11 años" is an upper bound, not an exact age.
+    # To keep the workflow operational, use the highest compatible age
+    # (C10 for <11) and emit an explicit warning.
     folded = _fold(text)
     warnings: list[str] = []
 
-    number = r"(\d+|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve)"
-
-    adults = 1
-    adult_match = re.search(
-        rf"\b{number}\s+(adulto|adultos|adult|adults)\b",
-        folded,
+    number_token = (
+        r"(?:\d+|un|uno|una|dos|tres|cuatro|cinco|"
+        r"seis|siete|ocho|nueve)"
     )
 
-    if adult_match:
-        adults = _number_value(adult_match.group(1)) or 1
-    else:
-        people_match = re.search(
-            rf"\b(?:para\s+)?{number}\s+"
-            r"(persona|personas|pasajero|pasajeros|pax)\b",
+    def qty_value(raw: str | None) -> int:
+        if not raw:
+            return 1
+        return _number_value(raw) or 1
+
+    # --------------------------------------------------------
+    # Adults
+    # --------------------------------------------------------
+    adult_count = 1
+
+    adult_match = re.search(
+        rf"\b(?P<qty>{number_token})\s*"
+        r"(?:adt|adulto|adultos|adult|adults)\b",
+        folded,
+    )
+    if adult_match is None:
+        adult_match = re.search(
+            r"\b(?:adt|adulto|adultos|adult|adults)\b"
+            rf"\s*(?:x|por)?\s*(?P<qty>{number_token})\b",
             folded,
         )
-        if people_match:
-            adults = _number_value(people_match.group(1)) or 1
 
-    passengers: list[PassengerSpec] = [
-        PassengerSpec(type=PassengerKind.ADULT, quantity=adults)
-    ]
+    if adult_match is not None:
+        adult_count = qty_value(adult_match.group("qty"))
+    else:
+        people_match = re.search(
+            rf"\b(?:para\s+)?(?P<qty>{number_token})\s+"
+            r"(?:persona|personas|pasajero|pasajeros|pax)\b",
+            folded,
+        )
+        if people_match is not None:
+            adult_count = qty_value(people_match.group("qty"))
 
-    age_hits: list[tuple[int, int]] = []
+    groups: dict[tuple[PassengerKind, int | None], int] = {}
+    occupied: list[tuple[int, int]] = []
 
-    for match in re.finditer(
-        r"\b(?:nino|nina|ninos|ninas|chico|chica|chicos|chicas|menor|menores)"
-        r"\s+(?:de\s+)?(\d{1,2})\b",
-        folded,
-    ):
-        age_hits.append((match.start(1), int(match.group(1))))
+    def overlaps(span: tuple[int, int]) -> bool:
+        start_pos, end_pos = span
+        return any(
+            not (end_pos <= old_start or start_pos >= old_end)
+            for old_start, old_end in occupied
+        )
 
-    for match in re.finditer(
-        r"\b(?:ninos|ninas|chicos|chicas|menores)\s+de\s+"
-        r"\d{1,2}\s+y\s+(\d{1,2})\b",
-        folded,
-    ):
-        age_hits.append((match.start(1), int(match.group(1))))
+    def add_age_group(age: int, quantity: int, source: str) -> None:
+        nonlocal adult_count
 
-    for match in re.finditer(
-        r"\b(?:otro|otra)\s+de\s+(\d{1,2})\b",
-        folded,
-    ):
-        age_hits.append((match.start(1), int(match.group(1))))
-
-    child_ages = [
-        age for _position, age in sorted(dict(age_hits).items())
-    ]
-
-    for age in child_ages:
-        if 2 <= age <= 11:
-            passengers.append(
-                PassengerSpec(
-                    type=PassengerKind.CHILD,
-                    age=age,
-                    quantity=1,
-                )
+        if age >= 12:
+            adult_count += quantity
+            warning_subject = (
+                f"{quantity} pasajero tratado como ADT"
+                if quantity == 1
+                else f"{quantity} pasajeros tratados como ADT"
             )
-        elif age >= 12:
-            passengers[0].quantity += 1
             warnings.append(
-                f"Pasajero de {age} años tratado como ADT por tener 12 años o más."
+                f"{source}: {warning_subject} por tener 12 años o más."
             )
+            return
+
+        if age < 2:
+            key = (PassengerKind.INFANT, age)
         else:
-            passengers.append(
-                PassengerSpec(
-                    type=PassengerKind.INFANT,
-                    age=age,
-                    quantity=1,
+            key = (PassengerKind.CHILD, age)
+
+        groups[key] = groups.get(key, 0) + quantity
+
+    # --------------------------------------------------------
+    # Explicit Sabre-style child PTCs: C09 x4 / 4 C09
+    # --------------------------------------------------------
+    child_ptc_patterns = [
+        rf"\b(?P<qty>{number_token})\s*c(?P<age>\d{{1,2}})\b",
+        rf"\bc(?P<age>\d{{1,2}})\b"
+        rf"\s*(?:x|por)?\s*(?P<qty>{number_token})\b",
+    ]
+
+    for pattern in child_ptc_patterns:
+        for match in re.finditer(pattern, folded):
+            if overlaps(match.span()):
+                continue
+
+            age = int(match.group("age"))
+            quantity = qty_value(match.group("qty"))
+
+            if age < 2:
+                raise ValueError(
+                    f"C{age:02d} no es un PTC CHILD válido en este agente. "
+                    "Para menores de 2 años usá INF."
                 )
+
+            add_age_group(age, quantity, f"C{age:02d}")
+            occupied.append(match.span())
+
+    # --------------------------------------------------------
+    # Upper-bound wording:
+    #   niños menores de 11 años x4 -> C10 x4 + warning
+    #   1 menor de 1 año            -> INF x1 + warning
+    # --------------------------------------------------------
+    threshold_patterns = [
+        rf"\b(?P<qty>{number_token})\s+"
+        r"(?:(?:nino|ninos|nina|ninas|chico|chicos|chica|chicas)\s+)?"
+        r"(?:menor|menores)\s+de\s+(?P<limit>\d{1,2})"
+        r"\s*(?:anos?|ano)?\b",
+        r"\b(?:(?:nino|ninos|nina|ninas|chico|chicos|chica|chicas)\s+)?"
+        r"(?:menor|menores)\s+de\s+(?P<limit>\d{1,2})"
+        rf"\s*(?:anos?|ano)?\b\s*(?:x|por)\s*(?P<qty>{number_token})\b",
+    ]
+
+    for pattern in threshold_patterns:
+        for match in re.finditer(pattern, folded):
+            if overlaps(match.span()):
+                continue
+
+            limit = int(match.group("limit"))
+            quantity = qty_value(match.group("qty"))
+
+            if limit <= 0:
+                raise ValueError(
+                    f"'menor de {limit} años' no define una edad válida."
+                )
+
+            assumed_age = max(0, limit - 1)
+            add_age_group(
+                assumed_age,
+                quantity,
+                f"Menor de {limit} años",
             )
             warnings.append(
-                f"Pasajero de {age} año(s) tratado como INF; se asume sin asiento."
+                f"'menor de {limit} años' ×{quantity} interpretado con "
+                f"edad máxima {assumed_age} para determinar el PTC. "
+                "Si las edades reales difieren, indicarlas individualmente."
             )
+            occupied.append(match.span())
 
+    # --------------------------------------------------------
+    # Age lists: niños de 9 y 7 años / niños de 9, 7 y 5 años
+    # --------------------------------------------------------
+    age_list_pattern = (
+        r"\b(?:ninos|ninas|chicos|chicas)\s+de\s+"
+        r"(?P<ages>\d{1,2}(?:\s*(?:,|y)\s*\d{1,2})+)"
+        r"\s*(?:anos?|ano)?\b"
+    )
+    for match in re.finditer(age_list_pattern, folded):
+        if overlaps(match.span()):
+            continue
+
+        ages = [
+            int(value)
+            for value in re.findall(r"\d{1,2}", match.group("ages"))
+        ]
+        for age in ages:
+            add_age_group(age, 1, f"Edad {age}")
+
+        occupied.append(match.span())
+
+    # --------------------------------------------------------
+    # Exact child age with quantity:
+    #   4 niños de 9 años
+    #   niños de 9 años x4
+    # --------------------------------------------------------
+    exact_child_patterns = [
+        rf"\b(?P<qty>{number_token})\s+"
+        r"(?:nino|ninos|nina|ninas|chico|chicos|chica|chicas|child|children)"
+        r"\s+(?:de\s+)?(?P<age>\d{1,2})"
+        r"\s*(?:anos?|ano)?\b",
+        r"\b(?:nino|ninos|nina|ninas|chico|chicos|chica|chicas|child|children)"
+        r"\s+(?:de\s+)?(?P<age>\d{1,2})"
+        rf"\s*(?:anos?|ano)?\b\s*(?:x|por)\s*(?P<qty>{number_token})\b",
+    ]
+
+    for pattern in exact_child_patterns:
+        for match in re.finditer(pattern, folded):
+            if overlaps(match.span()):
+                continue
+
+            add_age_group(
+                int(match.group("age")),
+                qty_value(match.group("qty")),
+                f"Edad {match.group('age')}",
+            )
+            occupied.append(match.span())
+
+    # Single explicit age, preserving older conversational syntax.
+    single_age_pattern = (
+        r"\b(?:nino|nina|chico|chica|otro|otra)\s+"
+        r"(?:de\s+)?(?P<age>\d{1,2})"
+        r"\s*(?:anos?|ano)?\b"
+    )
+    for match in re.finditer(single_age_pattern, folded):
+        if overlaps(match.span()):
+            continue
+
+        add_age_group(
+            int(match.group("age")),
+            1,
+            f"Edad {match.group('age')}",
+        )
+        occupied.append(match.span())
+
+    # --------------------------------------------------------
+    # Explicit infants: 2 infantes / INF x2
+    # --------------------------------------------------------
+    infant_patterns = [
+        rf"\b(?P<qty>{number_token})\s+"
+        r"(?:inf|infante|infantes|bebe|bebes|infant|infants)\b",
+        r"\b(?:inf|infante|infantes|bebe|bebes|infant|infants)\b"
+        rf"\s*(?:x|por)?\s*(?P<qty>{number_token})\b",
+    ]
+
+    for pattern in infant_patterns:
+        for match in re.finditer(pattern, folded):
+            if overlaps(match.span()):
+                continue
+
+            key = (PassengerKind.INFANT, None)
+            groups[key] = groups.get(key, 0) + qty_value(match.group("qty"))
+            occupied.append(match.span())
+
+    # If children were explicitly counted but no age/PTC could be inferred,
+    # fail instead of silently pricing them as adults.
     generic_child_match = re.search(
-        rf"\b{number}\s+"
-        r"(nino|ninos|nina|ninas|chico|chicos|chica|chicas|"
+        rf"\b(?P<qty>{number_token})\s+"
+        r"(?:nino|ninos|nina|ninas|chico|chicos|chica|chicas|"
         r"menor|menores|child|children)\b",
         folded,
     )
 
-    if generic_child_match and not child_ages:
-        qty = _number_value(generic_child_match.group(1)) or 1
-        raise ValueError(
-            f"Se detectaron {qty} menor(es) sin edad. "
-            "Necesito la edad de cada menor para determinar el PTC Cxx."
-        )
-
-    infant_match = re.search(
-        rf"\b{number}\s+(infante|infantes|bebe|bebes|infant|infants)\b",
-        folded,
+    has_minor_group = any(
+        kind in {PassengerKind.CHILD, PassengerKind.INFANT}
+        for kind, _age in groups
     )
 
-    if infant_match:
-        qty = _number_value(infant_match.group(1)) or 1
+    if (
+        generic_child_match is not None
+        and not has_minor_group
+        and not overlaps(generic_child_match.span())
+    ):
+        quantity = qty_value(generic_child_match.group("qty"))
+        raise ValueError(
+            f"Se detectaron {quantity} menor(es) sin edad. "
+            "Necesito la edad de cada menor "
+            "(por ejemplo C09 x4 o '4 niños de 9 años')."
+        )
+
+    passengers: list[PassengerSpec] = [
+        PassengerSpec(
+            type=PassengerKind.ADULT,
+            quantity=adult_count,
+        )
+    ]
+
+    for (kind, age), quantity in groups.items():
         passengers.append(
             PassengerSpec(
-                type=PassengerKind.INFANT,
-                quantity=qty,
+                type=kind,
+                age=age,
+                quantity=quantity,
             )
         )
 
     return passengers, warnings
 
-
-
 _MONTH_ABBR = {
-    "JAN": 1, "ENE": 1,
+    # English / Sabre-style
+    "JAN": 1,
     "FEB": 2,
     "MAR": 3,
-    "APR": 4, "ABR": 4,
+    "APR": 4,
     "MAY": 5,
     "JUN": 6,
     "JUL": 7,
-    "AUG": 8, "AGO": 8,
-    "SEP": 9, "SET": 9,
+    "AUG": 8,
+    "SEP": 9,
     "OCT": 10,
     "NOV": 11,
-    "DEC": 12, "DIC": 12,
+    "DEC": 12,
+    # Spanish common abbreviations
+    "ENE": 1,
+    "ABR": 4,
+    "AGO": 8,
+    "SET": 9,
+    "DIC": 12,
 }
 
 

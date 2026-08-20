@@ -1,5 +1,4 @@
 from __future__ import annotations
-from decimal import Decimal
 
 from html import escape
 import re
@@ -50,107 +49,37 @@ def _passenger_label(passenger) -> str:
     return ptc or "Pasajero"
 
 
-def _has_passenger_q1_breakdown(fare) -> bool:
+def _passenger_price_lines(fare: CommercialFare) -> list[str]:
     passenger_prices = list(
-        getattr(fare, "passenger_prices", None) or []
-    )
-    mixed = (
-        len(passenger_prices) > 1
-        or any(
-            str(getattr(p, "passenger_type", "") or "").upper()
-            != "ADT"
-            for p in passenger_prices
-        )
-    )
-    return mixed and any(
-        getattr(passenger, "q1_amount", None) is not None
-        for passenger in passenger_prices
-    )
-
-
-def _passenger_price_lines(fare) -> list[str]:
-    passenger_prices = list(
-        getattr(fare, "passenger_prices", None) or []
+        getattr(fare, 'passenger_prices', None) or []
     )
 
     mixed = (
         len(passenger_prices) > 1
         or any(
-            str(getattr(p, "passenger_type", "") or "").upper()
-            != "ADT"
-            for p in passenger_prices
+            str(passenger.passenger_type or '').upper() != 'ADT'
+            for passenger in passenger_prices
         )
     )
 
     if not mixed:
         return [
-            f"{fare.currency} "
-            f"{_money(fare.price_per_passenger, fare.currency)}"
+            f"{fare.currency} {_money(fare.price_per_passenger, fare.currency)}"
         ]
 
     lines: list[str] = []
-    q1_totals: list[tuple[str, Decimal]] = []
-
     for passenger in passenger_prices:
         currency = passenger.currency or fare.currency
-        quantity = int(getattr(passenger, "quantity", 1) or 1)
-
-        line = (
-            f"{_passenger_label(passenger)} "
-            f"×{quantity}: "
-            f"{currency} "
-            f"{_money(passenger.unit_price, currency)}"
+        lines.append(
+            f"{_passenger_label(passenger)} ×{passenger.quantity}: "
+            f"{currency} {_money(passenger.unit_price, currency)}"
         )
-
-        q1_amount = getattr(passenger, "q1_amount", None)
-        q1_total = getattr(passenger, "q1_total", None)
-        q1_currency = (
-            getattr(passenger, "q1_currency", None)
-            or currency
-        )
-
-        if q1_amount is not None:
-            if quantity > 1 and q1_total is not None:
-                line += (
-                    f" · Q1 {q1_currency} "
-                    f"{_money(q1_amount, q1_currency)} c/u "
-                    f"({q1_currency} "
-                    f"{_money(q1_total, q1_currency)} total)"
-                )
-            else:
-                line += (
-                    f" · Q1 {q1_currency} "
-                    f"{_money(q1_amount, q1_currency)}"
-                )
-
-        if q1_total is not None:
-            q1_totals.append(
-                (q1_currency, Decimal(str(q1_total)))
-            )
-
-        lines.append(line)
 
     if fare.total_price is not None:
         lines.append(
-            f"Total: {fare.currency} "
-            f"{_money(fare.total_price, fare.currency)}"
+            f"Total: {fare.currency} {_money(fare.total_price, fare.currency)}"
         )
-
-    currencies = {currency for currency, _ in q1_totals}
-    if q1_totals and len(currencies) == 1:
-        q1_currency = q1_totals[0][0]
-        q1_grand_total = sum(
-            (amount for _, amount in q1_totals),
-            Decimal("0"),
-        )
-        lines.append(
-            f"Q1 total incluido: {q1_currency} "
-            f"{_money(q1_grand_total, q1_currency)}"
-        )
-
     return lines
-
-
 
 def _fare_lines(
     fare: CommercialFare,
@@ -213,12 +142,7 @@ def _fare_lines(
     q1_currency = getattr(fare, 'q1_currency', None)
     currency = getattr(fare, 'currency', '')
 
-    if (
-        currency == 'ARS'
-        and not domestic_flag
-        and q1_amount is not None
-        and not _has_passenger_q1_breakdown(fare)
-    ):
+    if currency == 'ARS' and not domestic_flag and q1_amount is not None:
         lines.append(
             f"Q1 incluido: {q1_currency or 'ARS'} "
             f"{_money(q1_amount, q1_currency or 'ARS')}"

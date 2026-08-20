@@ -397,46 +397,16 @@ function farePriceHtml(f){
     return `<strong>${esc(money(f.price_per_passenger,f.currency))}</strong>`;
   }
 
-  const q1Totals=[];
-
-  const rows=pax.map(p=>{
-    const qty=Number(p.quantity||1);
-    const currency=p.currency||f.currency;
-    const q1Currency=p.q1_currency||currency;
-
-    let q1="";
-    if(p.q1_amount!=null){
-      if(qty>1 && p.q1_total!=null){
-        q1=`<div class="muted pax-q1">Q1: ${esc(money(p.q1_amount,q1Currency))} c/u · ${esc(money(p.q1_total,q1Currency))} total</div>`;
-      }else{
-        q1=`<div class="muted pax-q1">Q1: ${esc(money(p.q1_amount,q1Currency))}</div>`;
-      }
-    }
-
-    if(p.q1_total!=null){
-      q1Totals.push({
-        currency:q1Currency,
-        amount:Number(p.q1_total)
-      });
-    }
-
-    return `<div class="pax-price"><span>${esc(passengerPriceLabel(p))} ×${qty}${q1}</span>`+
-      `<strong>${esc(money(p.unit_price,currency))}</strong></div>`;
-  }).join("");
+  const rows=pax.map(p=>
+    `<div class="pax-price"><span>${esc(passengerPriceLabel(p))} ×${Number(p.quantity||1)}</span>`+
+    `<strong>${esc(money(p.unit_price,p.currency||f.currency))}</strong></div>`
+  ).join("");
 
   const total=f.total_price!=null
     ? `<div class="pax-total"><span>Total</span><strong>${esc(money(f.total_price,f.currency))}</strong></div>`
     : "";
 
-  let q1Grand="";
-  const q1Currencies=[...new Set(q1Totals.map(x=>x.currency))];
-  if(q1Totals.length && q1Currencies.length===1){
-    const q1Currency=q1Currencies[0];
-    const q1Amount=q1Totals.reduce((sum,x)=>sum+x.amount,0);
-    q1Grand=`<div class="pax-total"><span>Q1 total incluido</span><strong>${esc(money(q1Amount,q1Currency))}</strong></div>`;
-  }
-
-  return `<div class="pax-prices">${rows}${total}${q1Grand}</div>`;
+  return `<div class="pax-prices">${rows}${total}</div>`;
 }
 
 function allCommercialFares(it){

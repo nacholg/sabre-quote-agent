@@ -160,9 +160,6 @@ def _passenger_prices(
                 currency=currency,
                 unit_price=unit_price,
                 total_price=total_price,
-            q1_amount=getattr(passenger, "q1_amount", None),
-            q1_total=getattr(passenger, "q1_total", None),
-            q1_currency=getattr(passenger, "q1_currency", None),
             )
         )
 

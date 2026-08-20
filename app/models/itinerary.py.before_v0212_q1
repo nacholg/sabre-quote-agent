@@ -71,9 +71,6 @@ class PassengerPrice(BaseModel):
     total_price: Decimal
     total_tax: Decimal | None = None
     base_fare_amount: Decimal | None = None
-    q1_amount: Decimal | None = None
-    q1_total: Decimal | None = None
-    q1_currency: str | None = None
 
 
 class FareOption(BaseModel):
