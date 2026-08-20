@@ -17,9 +17,9 @@
     header{background:#101828;color:#fff;padding:18px 26px;display:flex;justify-content:space-between;align-items:center}
     header h1{font-size:20px;margin:0}
     header .badge{font-size:12px;background:#25334a;padding:6px 9px;border-radius:999px}
-    .layout{display:grid;grid-template-columns:300px minmax(0,1fr);min-height:calc(100vh - 62px);align-items:start}
-    aside{border-right:1px solid var(--line);background:#fbfcfe;padding:18px;overflow:auto;position:sticky;top:0;height:calc(100vh - 62px);align-self:start}
-    main{padding:24px;max-width:1450px;width:100%;margin:0 auto;align-self:start}
+    .layout{display:grid;grid-template-columns:280px minmax(0,1fr);min-height:calc(100vh - 62px)}
+    aside{border-right:1px solid var(--line);background:#fbfcfe;padding:18px;overflow:auto}
+    main{padding:24px;max-width:1250px;width:100%;margin:auto}
     .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:18px;margin-bottom:18px}
     .search-row{display:grid;grid-template-columns:1fr 120px 120px;gap:10px}
     textarea{width:100%;min-height:92px;resize:vertical;border:1px solid var(--line);border-radius:10px;padding:12px;font:inherit}
@@ -104,8 +104,7 @@
     .hidden{display:none}
     @media(max-width:900px){
       .layout{grid-template-columns:1fr}
-      aside{border-right:0;border-bottom:1px solid var(--line);position:static;height:auto;max-height:42vh;overflow:auto}
-      main{padding:16px;max-width:none}
+      aside{border-right:0;border-bottom:1px solid var(--line)}
       .search-row{grid-template-columns:1fr}
     }
   </style>

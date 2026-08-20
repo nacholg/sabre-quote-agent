@@ -17,9 +17,9 @@
     header{background:#101828;color:#fff;padding:18px 26px;display:flex;justify-content:space-between;align-items:center}
     header h1{font-size:20px;margin:0}
     header .badge{font-size:12px;background:#25334a;padding:6px 9px;border-radius:999px}
-    .layout{display:grid;grid-template-columns:300px minmax(0,1fr);min-height:calc(100vh - 62px);align-items:start}
-    aside{border-right:1px solid var(--line);background:#fbfcfe;padding:18px;overflow:auto;position:sticky;top:0;height:calc(100vh - 62px);align-self:start}
-    main{padding:24px;max-width:1450px;width:100%;margin:0 auto;align-self:start}
+    .layout{display:grid;grid-template-columns:280px minmax(0,1fr);min-height:calc(100vh - 62px)}
+    aside{border-right:1px solid var(--line);background:#fbfcfe;padding:18px;overflow:auto}
+    main{padding:24px;max-width:1250px;width:100%;margin:auto}
     .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:18px;margin-bottom:18px}
     .search-row{display:grid;grid-template-columns:1fr 120px 120px;gap:10px}
     textarea{width:100%;min-height:92px;resize:vertical;border:1px solid var(--line);border-radius:10px;padding:12px;font:inherit}
@@ -69,43 +69,10 @@
     iframe{width:100%;min-height:520px;border:1px solid var(--line);border-radius:12px;background:white}
     .rule{font-size:12px;margin-top:4px}
     .rule.high{color:var(--ok)} .rule.unknown{color:var(--warn)}
-    .history-tools{margin-top:12px}
-    .history-search{
-      width:100%;border:1px solid var(--line);border-radius:10px;
-      padding:10px 11px;background:white
-    }
-    .history-count{margin-top:6px;font-size:11px;color:var(--muted)}
-    .history-item.active{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent2)}
-    .artifact-stack{display:flex;flex-direction:column;gap:10px;margin-top:14px}
-    .artifact-empty{
-      border:1px dashed var(--line);border-radius:12px;padding:18px;
-      color:var(--muted);font-size:13px;text-align:center
-    }
-    .artifact-item{
-      border:1px solid var(--line);border-radius:12px;background:#fff;
-      overflow:hidden
-    }
-    .artifact-item summary{
-      cursor:pointer;list-style:none;padding:13px 14px;
-      display:flex;align-items:center;justify-content:space-between;gap:12px;
-      font-weight:750;background:#fafcff
-    }
-    .artifact-item summary::-webkit-details-marker{display:none}
-    .artifact-item[open] summary{border-bottom:1px solid var(--line)}
-    .artifact-summary-main{display:flex;align-items:center;gap:8px;min-width:0}
-    .artifact-meta{font-size:11px;color:var(--muted);font-weight:500;white-space:nowrap}
-    .artifact-body{padding:14px}
-    .artifact-body .actions{margin-top:0;margin-bottom:10px}
-    .artifact-body iframe{min-height:580px}
-    .artifact-type{
-      display:inline-flex;border-radius:999px;padding:3px 7px;
-      font-size:10px;font-weight:800;background:var(--accent2);color:#1746b4
-    }
     .hidden{display:none}
     @media(max-width:900px){
       .layout{grid-template-columns:1fr}
-      aside{border-right:0;border-bottom:1px solid var(--line);position:static;height:auto;max-height:42vh;overflow:auto}
-      main{padding:16px;max-width:none}
+      aside{border-right:0;border-bottom:1px solid var(--line)}
       .search-row{grid-template-columns:1fr}
     }
   </style>
@@ -119,19 +86,8 @@
 <div class="layout">
   <aside>
     <div style="display:flex;justify-content:space-between;align-items:center">
-      <strong>Cotizaciones</strong>
-      <button class="ghost" onclick="loadHistory()" title="Actualizar">↻</button>
-    </div>
-    <div class="history-tools">
-      <input
-        id="historySearch"
-        class="history-search"
-        type="search"
-        placeholder="Buscar Q-id, ruta, cliente, referencia…"
-        oninput="renderHistory()"
-        autocomplete="off"
-      >
-      <div id="historyCount" class="history-count"></div>
+      <strong>Historial</strong>
+      <button class="ghost" onclick="loadHistory()">↻</button>
     </div>
     <div id="history" class="muted" style="margin-top:10px">Cargando…</div>
   </aside>
@@ -179,15 +135,12 @@
       </div>
     </section>
 
-    <section id="artifactSection" class="panel hidden">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
-        <div>
-          <h2 style="margin:0">Salidas generadas</h2>
-          <div class="muted">WhatsApp, Email, reglas y repricing de esta cotización.</div>
-        </div>
-        <button class="ghost" onclick="clearSessionArtifacts()">Limpiar sesión</button>
+    <section id="previewSection" class="panel hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2 id="previewTitle" style="margin:0">Vista previa</h2>
+        <button class="ghost" onclick="hidePreview()">Cerrar</button>
       </div>
-      <div id="artifactStack" class="artifact-stack"></div>
+      <div id="previewBody" style="margin-top:14px"></div>
     </section>
   </main>
 </div>
@@ -196,9 +149,6 @@
 let currentQuote = null;
 let currentCommercialQuote = null;
 let currentQuoteId = null;
-let historyRows = [];
-const artifactsByQuote = {};
-let artifactSequence = 0;
 
 function esc(v){return String(v ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c]));}
 function money(v,c){if(v===null||v===undefined)return ""; return `${c} ${Number(v).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`;}
@@ -316,7 +266,6 @@ async function runQuote(){
     renderInterpretation(data.interpretation);
     currentQuote=data.quote;
     currentQuoteId=data.quote?.quote_id || null;
-    renderArtifacts();
 
     if(data.quote){
       currentCommercialQuote=await api(`/quotes/${currentQuoteId}/commercial?selected_only=false`);
@@ -378,14 +327,10 @@ async function refreshQuote(){
       }).join("");
       rows.push(`<div class="fare"><strong>Opción ${c.old_rank} → nueva ${c.new_rank}</strong>${fares}</div>`);
     }
-    const refreshArtifactHtml=`<div class="status ok">Nueva versión: ${esc(r.refreshed_quote_id)}</div><div class="fares">${rows.join("")}</div>`;
+    document.getElementById("previewTitle").textContent="Refresh / Reprice";
+    document.getElementById("previewBody").innerHTML=`<div class="status ok">Nueva versión: ${esc(r.refreshed_quote_id)}</div><div class="fares">${rows.join("")}</div>`;
+    document.getElementById("previewSection").classList.remove("hidden");
     await openQuote(r.refreshed_quote_id);
-    appendArtifact({
-      type:"reprice",
-      title:"Refresh / Reprice",
-      html:refreshArtifactHtml,
-      ranks:selectedRanks()
-    },r.refreshed_quote_id);
     await loadHistory();
   }catch(e){alert(e.message);}
 }
@@ -636,106 +581,37 @@ async function ensureSelection(){
   }
 }
 
-function artifactBucket(quoteId=currentQuoteId){
-  if(!quoteId)return [];
-  if(!artifactsByQuote[quoteId])artifactsByQuote[quoteId]=[];
-  return artifactsByQuote[quoteId];
-}
-
-function artifactClock(){
-  return new Date().toLocaleTimeString("es-AR",{
-    hour:"2-digit",minute:"2-digit",hour12:false
-  });
-}
-
-function artifactSelectedLabel(ranks){
-  return ranks?.length ? `Opciones ${ranks.join(", ")}` : "Sin selección guardada";
-}
-
-function appendArtifact(artifact, quoteId=currentQuoteId){
-  if(!quoteId)return;
-  artifactSequence+=1;
-  artifact.id=artifact.id||`artifact-${Date.now()}-${artifactSequence}`;
-  artifact.createdAt=artifact.createdAt||artifactClock();
-  artifact.ranks=artifact.ranks||selectedRanks();
-  artifactBucket(quoteId).unshift(artifact);
-  if(quoteId===currentQuoteId)renderArtifacts();
-}
-
-function renderArtifacts(){
-  const section=document.getElementById("artifactSection");
-  const stack=document.getElementById("artifactStack");
-  if(!section||!stack)return;
-
-  const artifacts=currentQuoteId ? artifactBucket(currentQuoteId) : [];
-  if(!currentQuoteId || !artifacts.length){
-    stack.innerHTML=`<div class="artifact-empty">Todavía no generaste salidas para esta cotización en esta sesión.</div>`;
-    section.classList.toggle("hidden",!currentQuoteId);
-    return;
-  }
-
-  section.classList.remove("hidden");
-  stack.innerHTML=artifacts.map((a,index)=>{
-    const badge={whatsapp:"WhatsApp",email:"Email",rules:"Reglas",reprice:"Reprice"}[a.type]||a.type||"Salida";
-    let body="";
-    if(a.type==="whatsapp"){
-      body=`<div class="actions"><button class="secondary" onclick="copyArtifact('${esc(a.id)}')">Copiar</button></div>`+
-        `<div class="preview" data-copy-artifact="${esc(a.id)}">${esc(a.text||"")}</div>`;
-    }else if(a.type==="email"){
-      body=`<iframe data-email-artifact="${esc(a.id)}"></iframe>`;
-    }else{
-      body=a.html||"";
-    }
-    return `<details class="artifact-item" ${index===0?"open":""}>`+
-      `<summary><span class="artifact-summary-main"><span class="artifact-type">${esc(badge)}</span>`+
-      `<span>${esc(a.title||badge)}</span></span>`+
-      `<span class="artifact-meta">${esc(a.createdAt)} · ${esc(artifactSelectedLabel(a.ranks))}</span></summary>`+
-      `<div class="artifact-body">${body}</div></details>`;
-  }).join("");
-
-  artifacts.filter(a=>a.type==="email").forEach(a=>{
-    const frame=stack.querySelector(`[data-email-artifact="${CSS.escape(a.id)}"]`);
-    if(frame)frame.srcdoc=a.html||"";
-  });
-}
-
-function copyArtifact(id){
-  const source=document.querySelector(`[data-copy-artifact="${CSS.escape(id)}"]`);
-  const value=source?.innerText||"";
-  navigator.clipboard.writeText(value).then(()=>alert("Copiado."));
-}
-
-function clearSessionArtifacts(){
-  if(!currentQuoteId)return;
-  artifactsByQuote[currentQuoteId]=[];
-  renderArtifacts();
-}
-
 async function showWhatsApp(){
-  if(!currentQuoteId)return;
   try{
     await ensureSelection();
-    const ranks=selectedRanks();
-    const output=await api(`/quotes/${currentQuoteId}/whatsapp`);
-    appendArtifact({type:"whatsapp",title:"WhatsApp",text:output,ranks});
+    const text=await api(`/quotes/${currentQuoteId}/whatsapp`);
+    document.getElementById("previewTitle").textContent="WhatsApp";
+    document.getElementById("previewBody").innerHTML=`<div class="actions"><button class="secondary" onclick="copyPreview()">Copiar</button></div><div id="copySource" class="preview">${esc(text)}</div>`;
+    document.getElementById("previewSection").classList.remove("hidden");
   }catch(e){alert(e.message);}
 }
 
 async function showEmail(){
-  if(!currentQuoteId)return;
   try{
     await ensureSelection();
-    const ranks=selectedRanks();
     const html=await api(`/quotes/${currentQuoteId}/email`);
-    appendArtifact({type:"email",title:"Email",html,ranks});
+    document.getElementById("previewTitle").textContent="Email";
+    document.getElementById("previewBody").innerHTML=`<iframe id="emailFrame"></iframe>`;
+    const frame=document.getElementById("emailFrame");
+    frame.srcdoc=html;
+    document.getElementById("previewSection").classList.remove("hidden");
   }catch(e){alert(e.message);}
 }
 
+function copyPreview(){
+  const t=document.getElementById("copySource")?.innerText||"";
+  navigator.clipboard.writeText(t).then(()=>alert("Copiado."));
+}
+function hidePreview(){document.getElementById("previewSection").classList.add("hidden");}
+
 async function auditRules(){
-  if(!currentQuoteId)return;
   try{
     await ensureSelection();
-    const ranks=selectedRanks();
     const data=await api(`/quotes/${currentQuoteId}/fare-rules`);
     const rows=[];
     (data.options||[]).forEach(o=>(o.fares||[]).forEach(f=>{
@@ -746,7 +622,7 @@ async function auditRules(){
 ${fareRuleCommercialText(f, "no_show") ? `<div class="rule high">No-show: ${esc(fareRuleCommercialText(f, "no_show"))}</div>` : ""}
       </div>`);
     }));
-
+    document.getElementById("previewTitle").textContent="Auditoría de reglas";
     let ruleStatus="Reglas suficientes para los conceptos auditados.";
     let ruleClass="ok";
     if(data.external_rule_lookup_status==="pending_authentication"){
@@ -758,65 +634,22 @@ ${fareRuleCommercialText(f, "no_show") ? `<div class="rule high">No-show: ${esc(
       ruleClass="warn";
       ruleStatus="Faltan reglas externas para algunos conceptos.";
     }
-
-    appendArtifact({
-      type:"rules",
-      title:"Auditoría de reglas",
-      ranks,
-      html:`<div class="status ${ruleClass}">${esc(ruleStatus)}</div><div class="fares">${rows.join("")}</div>`
-    });
+    document.getElementById("previewBody").innerHTML=`<div class="status ${ruleClass}">${esc(ruleStatus)}</div><div class="fares">${rows.join("")}</div>`;
+    document.getElementById("previewSection").classList.remove("hidden");
   }catch(e){alert(e.message);}
-}
-
-function historySearchValue(){
-  return (document.getElementById("historySearch")?.value||"").trim().toLowerCase();
-}
-
-function renderHistory(){
-  const el=document.getElementById("history");
-  const countEl=document.getElementById("historyCount");
-  if(!el)return;
-
-  const needle=historySearchValue();
-  const rows=needle
-    ? historyRows.filter(q=>JSON.stringify(q).toLowerCase().includes(needle))
-    : historyRows;
-
-  if(countEl){
-    countEl.textContent=needle
-      ? `${rows.length} de ${historyRows.length} cotizaciones`
-      : `${historyRows.length} cotizaciones cargadas`;
-  }
-
-  if(!rows.length){
-    el.innerHTML=`<div class="artifact-empty">${needle?"No encontré coincidencias.":"Todavía no hay cotizaciones."}</div>`;
-    return;
-  }
-
-  el.innerHTML=rows.map(q=>{
-    const active=q.quote_id===currentQuoteId?" active":"";
-    const route=[q.origin,q.destination].filter(Boolean).join(" → ");
-    const client=q.client_name||q.client_reference||"";
-    return `<div class="history-item${active}" onclick="openQuote('${esc(q.quote_id)}')">`+
-      `<strong>${esc(route||q.quote_id||"Cotización")}</strong>`+
-      `${client?`<div>${esc(client)}</div>`:""}`+
-      `<div>${esc(q.departure_date||"")}${q.return_date?" / "+esc(q.return_date):""}</div>`+
-      `<div>${esc(q.quote_id)} · ${esc(q.status||"")}</div>`+
-      `</div>`;
-  }).join("");
 }
 
 async function loadHistory(){
   try{
-    try{
-      historyRows=await api("/quotes?limit=200");
-    }catch(firstError){
-      historyRows=await api("/quotes?limit=100");
-    }
-    renderHistory();
-  }catch(e){
-    document.getElementById("history").textContent=e.message;
-  }
+    const rows=await api("/quotes?limit=20");
+    const el=document.getElementById("history");
+    if(!rows.length){el.textContent="Todavía no hay cotizaciones.";return;}
+    el.innerHTML=rows.map(q=>`<div class="history-item" onclick="openQuote('${esc(q.quote_id)}')">
+      <strong>${esc(q.origin||"")} → ${esc(q.destination||"")}</strong>
+      <div>${esc(q.departure_date||"")}${q.return_date?" / "+esc(q.return_date):""}</div>
+      <div>${esc(q.quote_id)} · ${q.status}</div>
+    </div>`).join("");
+  }catch(e){document.getElementById("history").textContent=e.message;}
 }
 
 async function openQuote(id){
@@ -834,8 +667,6 @@ async function openQuote(id){
     document.getElementById("clientName").value=rec.client_name||"";
     document.getElementById("clientReference").value=rec.client_reference||"";
     document.getElementById("quoteNotes").value=rec.notes||"";
-    renderArtifacts();
-    renderHistory();
   }catch(e){alert(e.message);}
 }
 
