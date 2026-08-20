@@ -148,11 +148,7 @@ class SabreClient:
             started = time.perf_counter()
             response: httpx.Response | None = None
             try:
-                _token_started = time.perf_counter()
                 token = await self.tokens.get_token()
-                _token_elapsed = time.perf_counter() - _token_started
-                print(f"[SABRE] token lookup: {_token_elapsed:.3f}s")
-                _http_started = time.perf_counter()
                 response = await self.http.post(
                     url,
                     headers={
@@ -162,11 +158,6 @@ class SabreClient:
                     },
                     json=payload,
                 )
-                _http_elapsed = time.perf_counter() - _http_started
-                print(
-                    f"[SABRE] BFM HTTP: {_http_elapsed:.3f}s | "
-                    f"attempt={attempt + 1} | HTTP={response.status_code}"
-                )
                 self._capture_exchange(url=url, payload=payload, response=response, started=started)
                 if response.is_error:
                     raise SabreAPIError(
@@ -174,11 +165,7 @@ class SabreClient:
                         response.reason_phrase,
                         response.text[:5000],
                     )
-                _json_started = time.perf_counter()
-                _payload = response.json()
-                _json_elapsed = time.perf_counter() - _json_started
-                print(f"[SABRE] JSON parse: {_json_elapsed:.3f}s")
-                return _payload
+                return response.json()
             except (httpx.TimeoutException, httpx.NetworkError, SabreAPIError) as exc:
                 last_error = exc
                 if self.last_exchange is None or self.last_exchange.get("elapsed_ms") is None:

@@ -101,37 +101,6 @@
       display:inline-flex;border-radius:999px;padding:3px 7px;
       font-size:10px;font-weight:800;background:var(--accent2);color:#1746b4
     }
-    button{
-      cursor:pointer;
-      user-select:none;
-      transform:translateY(0) scale(1);
-      transition:transform 80ms ease,filter 100ms ease,box-shadow 100ms ease,opacity 100ms ease;
-    }
-    button:hover:not(:disabled){
-      filter:brightness(.985);
-      box-shadow:0 3px 9px rgba(20,35,70,.10);
-    }
-    button:active:not(:disabled){
-      transform:translateY(2px) scale(.975);
-      filter:brightness(.93);
-      box-shadow:inset 0 2px 4px rgba(20,35,70,.18);
-    }
-    button.clicked-feedback:not(:disabled){
-      animation:button-click-feedback 180ms ease-out;
-    }
-    button:focus-visible{
-      outline:3px solid rgba(76,111,255,.28);
-      outline-offset:2px;
-    }
-    button:disabled{
-      cursor:wait;
-      opacity:.58;
-    }
-    @keyframes button-click-feedback{
-      0%{transform:translateY(0) scale(1)}
-      45%{transform:translateY(2px) scale(.965)}
-      100%{transform:translateY(0) scale(1)}
-    }
     .hidden{display:none}
     @media(max-width:900px){
       .layout{grid-template-columns:1fr}
@@ -224,19 +193,6 @@
 </div>
 
 <script>
-document.addEventListener("click",event=>{
-  const button=event.target.closest("button");
-  if(!button || button.disabled)return;
-  button.classList.remove("clicked-feedback");
-  void button.offsetWidth;
-  button.classList.add("clicked-feedback");
-  window.setTimeout(
-    ()=>button.classList.remove("clicked-feedback"),
-    190
-  );
-});
-
-
 let currentQuote = null;
 let currentCommercialQuote = null;
 let currentQuoteId = null;

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from dataclasses import replace
 from time import perf_counter
 
@@ -166,26 +165,9 @@ def _diversify_ranked_by_carrier(ranked: list, limit: int) -> list:
     ]
 
 
-async def _timed_primary_bfm_search(
-    shopping,
-    cabin_search,
-    *,
-    currency_override,
-    semaphore,
-):
-    async with semaphore:
-        started = perf_counter()
-        raw = await shopping.search(
-            cabin_search,
-            currency_override=currency_override,
-        )
-        return raw, perf_counter() - started
-
-
 async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse:
     _quote_started = perf_counter()
     _bfm_seconds = 0.0
-    _bfm_wall_seconds = 0.0
     _normalize_seconds = 0.0
     _persist_seconds = 0.0
     _bfm_calls = 0
@@ -214,41 +196,21 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
             override = None if currency == "OFFICIAL" else currency
             merged_for_currency: list = []
 
-            _cabin_semaphore = asyncio.Semaphore(3)
-            _parallel_started = perf_counter()
-            _primary_results = await asyncio.gather(
-                *[
-                    _timed_primary_bfm_search(
-                        shopping,
-                        search.model_copy(update={"cabin": cabin}),
-                        currency_override=override,
-                        semaphore=_cabin_semaphore,
-                    )
-                    for cabin in cabins
-                ]
-            )
-            _parallel_elapsed = perf_counter() - _parallel_started
-            _bfm_wall_seconds += _parallel_elapsed
-            print(
-                f"[QUOTE] BFM cabin batch currency={currency}: "
-                f"{_parallel_elapsed:.3f}s wall | "
-                f"{len(cabins)} cabin calls"
-            )
-
-            _primary_by_cabin = {
-                cabin: result
-                for cabin, result in zip(cabins, _primary_results)
-            }
-
             for cabin in cabins:
                 cabin_search = search.model_copy(update={"cabin": cabin})
-                raw, _bfm_primary_elapsed = _primary_by_cabin[cabin]
+
+                _bfm_primary_started = perf_counter()
+                raw = await shopping.search(
+                    cabin_search,
+                    currency_override=override,
+                )
+                _bfm_primary_elapsed = perf_counter() - _bfm_primary_started
                 _bfm_seconds += _bfm_primary_elapsed
                 _bfm_calls += 1
                 print(
                     f"[QUOTE] BFM #{_bfm_calls} "
                     f"currency={currency} cabin={cabin.value}: "
-                    f"{_bfm_primary_elapsed:.3f}s service"
+                    f"{_bfm_primary_elapsed:.3f}s"
                 )
 
                 diagnostics = extract_bfm_diagnostics(raw)
@@ -306,7 +268,6 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
                         currency_override=override,
                     )
                     _bfm_fallback_elapsed = perf_counter() - _bfm_fallback_started
-                    _bfm_wall_seconds += _bfm_fallback_elapsed
                     _bfm_seconds += _bfm_fallback_elapsed
                     _bfm_calls += 1
                     print(
@@ -478,12 +439,11 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
     _quote_total = perf_counter() - _quote_started
     _other_seconds = max(
         0.0,
-        _quote_total - _bfm_wall_seconds - _normalize_seconds - _persist_seconds,
+        _quote_total - _bfm_seconds - _normalize_seconds - _persist_seconds,
     )
     print(
         f"[QUOTE] search total: {_quote_total:.3f}s | "
-        f"BFM wall={_bfm_wall_seconds:.3f}s | "
-        f"BFM service={_bfm_seconds:.3f}s ({_bfm_calls} calls) | "
+        f"BFM={_bfm_seconds:.3f}s ({_bfm_calls} calls) | "
         f"normalize={_normalize_seconds:.3f}s | "
         f"SQLite={_persist_seconds:.3f}s | "
         f"other={_other_seconds:.3f}s"

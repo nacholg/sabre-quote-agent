@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 import asyncio
 import base64
 from dataclasses import dataclass
@@ -111,13 +110,7 @@ class SabreTokenProvider:
             data = {"grant_type": "client_credentials"}
 
         try:
-            _oauth_started = time.perf_counter()
             response = await self.client.post(url, headers=headers, data=data)
-            _oauth_elapsed = time.perf_counter() - _oauth_started
-            print(
-                f"[SABRE] OAuth refresh: {_oauth_elapsed:.3f}s | "
-                f"mode={token_type} | HTTP={response.status_code}"
-            )
         except httpx.HTTPError as exc:
             raise SabreAuthenticationError(f"No se pudo conectar al endpoint OAuth: {exc}") from exc
 
