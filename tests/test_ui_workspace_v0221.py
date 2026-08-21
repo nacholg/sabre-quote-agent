@@ -37,8 +37,12 @@ def test_history_has_search_and_larger_workspace():
     html = source()
     assert 'id="historySearch"' in html
     assert "function renderHistory(" in html
-    assert 'api("/quotes?limit=200")' in html
-    assert "JSON.stringify(q).toLowerCase().includes(needle)" in html
+    # v0.22.3 moved history filtering to the backend.
+    assert 'oninput="scheduleHistorySearch()"' in html
+    assert "new URLSearchParams" in html
+    assert 'params.set("q",needle)' in html
+    assert "búsqueda en servidor" in html
+    assert "JSON.stringify(q).toLowerCase().includes(needle)" not in html
 
 
 def test_existing_commercial_price_rendering_is_not_removed():
