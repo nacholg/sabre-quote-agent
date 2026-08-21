@@ -131,6 +131,25 @@ def _fallback_baggage(fare: FareOption) -> str | None:
     ) or None
 
 
+def _fallback_ticketing(fare: FareOption) -> str | None:
+    value = getattr(fare, "last_ticket_date", None)
+    if not value:
+        return None
+
+    text = str(value)
+    parts = text.split("-")
+    if (
+        len(parts) == 3
+        and len(parts[0]) == 4
+        and all(part.isdigit() for part in parts)
+    ):
+        text = f"{parts[2]}/{parts[1]}/{parts[0]}"
+
+    return (
+        f"Emitir hasta el {text} o antes si cambia la disponibilidad."
+    )
+
+
 def _passenger_prices(
     fare: FareOption,
 ) -> list[CommercialPassengerPrice]:
@@ -218,6 +237,11 @@ def _commercial_fare(
             getattr(summary, "no_show", None)
             if summary is not None
             else None
+        ),
+        ticketing=(
+            getattr(summary, "ticketing", None)
+            if summary is not None
+            else _fallback_ticketing(fare)
         ),
     )
 

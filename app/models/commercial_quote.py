@@ -25,6 +25,7 @@ class CommercialFareRules(BaseModel):
     changes: str | None = None
     refunds: str | None = None
     no_show: str | None = None
+    ticketing: str | None = None
 
 
 class CommercialFare(BaseModel):

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from app.models.api import (
     FareRuleCommercialSummary,
     FareRuleConditionDetail,
@@ -154,6 +156,32 @@ def _no_show_text(audit: FareRuleFareAudit) -> str | None:
     return None
 
 
+def _ticketing_text(audit: FareRuleFareAudit) -> str:
+    """Return client-safe ticketing wording without exposing BFM internals."""
+    ticketing = audit.ticketing
+
+    if ticketing.status == "included":
+        text = (ticketing.text or "").strip()
+
+        # Sabre commonly exposes last_ticket_date as ISO. Keep the operational
+        # meaning but present the date in the format normally used by agents.
+        text = re.sub(
+            r"\b(\d{4})-(\d{2})-(\d{2})\b",
+            lambda match: (
+                f"{match.group(3)}/{match.group(2)}/{match.group(1)}"
+            ),
+            text,
+        )
+
+        if text:
+            return text
+
+    return (
+        "Fecha límite de emisión a confirmar; "
+        "tarifa sujeta a disponibilidad hasta la emisión."
+    )
+
+
 def build_fare_rule_commercial_summary(
     audit: FareRuleFareAudit,
 ) -> FareRuleCommercialSummary:
@@ -162,5 +190,5 @@ def build_fare_rule_commercial_summary(
         changes=_changes_text(audit),
         refunds=_refunds_text(audit),
         no_show=_no_show_text(audit),
-        ticketing=audit.ticketing.text,
+        ticketing=_ticketing_text(audit),
     )
