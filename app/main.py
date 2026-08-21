@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import SabreEnvironmentMismatchError, runtime_environment_status
 from app.models.api import AgentQuoteRequest, AgentQuoteResponse, FareRuleAuditResponse, QuoteRenderResponse, QuoteSearchAPIRequest, QuoteSearchAPIResponse, QuoteSelectionRequest, QuoteSelectionResponse, StoredQuoteRecord, StoredQuoteSummary, QuoteWorkflowUpdate, QuoteWorkflowResponse, QuoteRefreshResponse
@@ -12,7 +13,7 @@ from app.models.api import QuoteArtifactCreate, QuoteArtifactRecord, QuoteVersio
 from app.sabre.errors import SabreError
 from app.services.quote_service import search_quote
 from app.services.agent_service import agent_quote
-from app.services.quote_repository import QuoteVersionConflictError, get_quote_repository
+from app.services.quote_repository import QuoteRepositoryUnavailableError, QuoteVersionConflictError, get_quote_repository
 from app.services.commercial_renderer import render_stored_quote
 from app.services.commercial_quote_builder import build_commercial_quote
 from app.services.live_air_rules_audit import audit_stored_quote_live
@@ -30,6 +31,29 @@ app = FastAPI(
 WEB_INDEX = Path(__file__).resolve().parent / "web" / "index.html"
 
 
+_DATABASE_UNAVAILABLE_DETAIL = (
+    "Base de datos no disponible. Verificá DATABASE_URL y la conectividad "
+    "con PostgreSQL antes de continuar."
+)
+
+
+@app.exception_handler(QuoteRepositoryUnavailableError)
+async def quote_repository_unavailable_handler(_, exc):
+    return JSONResponse(
+        status_code=503,
+        content={"detail": str(exc) or _DATABASE_UNAVAILABLE_DETAIL},
+    )
+
+
+@app.exception_handler(SQLAlchemyError)
+async def sqlalchemy_unavailable_handler(_, __):
+    # Do not leak hostnames, ports, users, passwords or SQLAlchemy internals.
+    return JSONResponse(
+        status_code=503,
+        content={"detail": _DATABASE_UNAVAILABLE_DETAIL},
+    )
+
+
 @app.get("/", include_in_schema=False)
 async def root_redirect() -> RedirectResponse:
     return RedirectResponse(url="/app")
@@ -41,8 +65,28 @@ async def web_app() -> HTMLResponse:
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "sabre-quote-agent", "version": "0.21.1"}
+async def health() -> dict[str, object]:
+    database: dict[str, object] = {
+        "status": "unavailable",
+        "dialect": None,
+    }
+
+    try:
+        repository = get_quote_repository()
+        repository.ping()
+        database = {
+            "status": "ok",
+            "dialect": repository.dialect_name,
+        }
+    except (QuoteRepositoryUnavailableError, SQLAlchemyError):
+        pass
+
+    return {
+        "status": "ok" if database["status"] == "ok" else "degraded",
+        "service": "sabre-quote-agent",
+        "version": "0.21.1",
+        "database": database,
+    }
 
 
 @app.get("/runtime", summary="Runtime operativo sin secretos")

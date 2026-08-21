@@ -1150,7 +1150,11 @@ async function loadHistory(){
     renderHistory();
   }catch(e){
     if(serial!==historyRequestSerial)return;
-    document.getElementById("history").textContent=e.message;
+    historyRows=[];
+    if(countEl)countEl.textContent="Historial no disponible";
+    const historyEl=document.getElementById("history");
+    historyEl.innerHTML=
+      `<div class="status warn"><strong>Historial no disponible.</strong><br>${esc(e.message)}</div>`;
   }
 }
 

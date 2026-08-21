@@ -7,8 +7,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import create_engine, delete, insert, inspect, or_, select, update
+from sqlalchemy import create_engine, delete, insert, inspect, or_, select, text, update
 from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.database import database_url as configured_database_url
 from app.db.models import QuoteArtifactRow, QuoteRow
@@ -31,6 +32,16 @@ ARTIFACT_TABLE = QuoteArtifactRow.__table__
 
 class QuoteVersionConflictError(RuntimeError):
     """Raised when a historical quote version is used for a mutable action."""
+
+
+class QuoteRepositoryUnavailableError(RuntimeError):
+    """Raised when the configured quote database cannot be reached."""
+
+
+_DATABASE_UNAVAILABLE_MESSAGE = (
+    "Base de datos no disponible. Verificá DATABASE_URL y la conectividad "
+    "con PostgreSQL antes de continuar."
+)
 
 
 def _utc_now() -> str:
@@ -88,6 +99,16 @@ class QuoteRepository:
 
     def close(self) -> None:
         self.engine.dispose()
+
+    def ping(self) -> None:
+        """Verify database connectivity without exposing connection details."""
+        try:
+            with self.engine.connect() as connection:
+                connection.execute(text("SELECT 1")).scalar_one()
+        except SQLAlchemyError as exc:
+            raise QuoteRepositoryUnavailableError(
+                _DATABASE_UNAVAILABLE_MESSAGE
+            ) from exc
 
     def _connect(self) -> sqlite3.Connection:
         # Legacy test/debug compatibility for SQLite only.
@@ -794,7 +815,12 @@ def get_quote_repository() -> QuoteRepository:
         if _repository is not None:
             _repository.close()
 
-        _repository = QuoteRepository()
+        try:
+            _repository = QuoteRepository()
+        except SQLAlchemyError as exc:
+            raise QuoteRepositoryUnavailableError(
+                _DATABASE_UNAVAILABLE_MESSAGE
+            ) from exc
 
     return _repository
 

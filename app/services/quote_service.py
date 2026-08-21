@@ -192,6 +192,13 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
     search = request.to_search_request()
     settings = get_settings(request.environment)
 
+    # A persisted quote is only useful if it can actually be stored.
+    # Preflight the database BEFORE making any Sabre/BFM network call.
+    repository = None
+    if request.persist:
+        repository = get_quote_repository()
+        repository.ping()
+
     currencies = resolve_pricing_currencies_for_legs(
         search.effective_legs(), search.currency
     )
@@ -496,7 +503,7 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
     )
 
     if request.persist:
-        repository = get_quote_repository()
+        assert repository is not None
         _persist_started = perf_counter()
         quote_id = repository.create(request=request, response=response)
         _persist_seconds = perf_counter() - _persist_started
