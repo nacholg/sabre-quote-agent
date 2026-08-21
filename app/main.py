@@ -7,11 +7,11 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 from app.models.api import AgentQuoteRequest, AgentQuoteResponse, FareRuleAuditResponse, QuoteRenderResponse, QuoteSearchAPIRequest, QuoteSearchAPIResponse, QuoteSelectionRequest, QuoteSelectionResponse, StoredQuoteRecord, StoredQuoteSummary, QuoteWorkflowUpdate, QuoteWorkflowResponse, QuoteRefreshResponse
 from app.models.commercial_quote import CommercialQuote
-from app.models.api import QuoteArtifactCreate, QuoteArtifactRecord
+from app.models.api import QuoteArtifactCreate, QuoteArtifactRecord, QuoteVersionHistory
 from app.sabre.errors import SabreError
 from app.services.quote_service import search_quote
 from app.services.agent_service import agent_quote
-from app.services.quote_repository import get_quote_repository
+from app.services.quote_repository import QuoteVersionConflictError, get_quote_repository
 from app.services.commercial_renderer import render_stored_quote
 from app.services.commercial_quote_builder import build_commercial_quote
 from app.services.live_air_rules_audit import audit_stored_quote_live
@@ -82,6 +82,28 @@ async def get_quote(quote_id: str) -> StoredQuoteRecord:
         raise HTTPException(status_code=404, detail=f"Cotización no encontrada: {quote_id}")
     return record
 
+
+
+@app.get(
+    "/quotes/{quote_id}/versions",
+    response_model=QuoteVersionHistory,
+    summary="Historial de versiones de una cotización",
+)
+async def get_quote_versions(
+    quote_id: str,
+) -> QuoteVersionHistory:
+    try:
+        return get_quote_repository().version_history(quote_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Cotización no encontrada: {quote_id}",
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
 
 
 @app.get(
@@ -218,6 +240,8 @@ async def select_quote_options(
         return get_quote_repository().select(quote_id, request.ranks)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Cotización no encontrada: {quote_id}")
+    except QuoteVersionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -228,6 +252,8 @@ async def clear_quote_selection(quote_id: str) -> QuoteSelectionResponse:
         return get_quote_repository().clear_selection(quote_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Cotización no encontrada: {quote_id}")
+    except QuoteVersionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/quotes/{quote_id}/render", response_model=QuoteRenderResponse)
@@ -333,6 +359,8 @@ async def update_quote_workflow(
         )
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Cotización no encontrada: {quote_id}")
+    except QuoteVersionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -343,5 +371,7 @@ async def refresh_quote(quote_id: str) -> QuoteRefreshResponse:
         return await refresh_stored_quote(get_quote_repository(), quote_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Cotización no encontrada: {quote_id}")
+    except QuoteVersionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except SabreError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc

@@ -76,6 +76,19 @@
     }
     .history-count{margin-top:6px;font-size:11px;color:var(--muted)}
     .history-item.active{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent2)}
+    .version-bar{
+      margin-top:14px;padding:11px 12px;border:1px solid var(--line);
+      border-radius:11px;background:#fafcff;
+      display:flex;justify-content:space-between;align-items:center;
+      gap:12px;flex-wrap:wrap
+    }
+    .version-pills{display:flex;gap:7px;flex-wrap:wrap}
+    .version-pill{
+      border:1px solid var(--line);background:white;color:#344054;
+      border-radius:999px;padding:6px 9px;font-size:12px;font-weight:750
+    }
+    .version-pill.current{border-color:var(--accent);background:var(--accent2);color:#1746b4}
+    .version-pill.latest::after{content:" · actual";font-weight:600}
     .artifact-stack{display:flex;flex-direction:column;gap:10px;margin-top:14px}
     .artifact-empty{
       border:1px dashed var(--line);border-radius:12px;padding:18px;
@@ -191,6 +204,7 @@
         </div>
         <div id="quoteId" class="chip"></div>
       </div>
+      <div id="versionBar" class="version-bar hidden"></div>
       <div id="timeMatchStatus" class="hidden"></div>
       <div class="interpret" style="margin-top:14px">
         <input id="clientName" placeholder="Cliente" style="border:1px solid var(--line);border-radius:10px;padding:10px">
@@ -199,14 +213,14 @@
       </div>
       <div id="options"></div>
       <div class="actions">
-        <button class="primary" onclick="saveSelection()">Guardar selección</button>
-        <button class="secondary" onclick="saveWorkflow()">Guardar datos</button>
-        <button class="secondary" onclick="refreshQuote()">Refrescar / Reprice</button>
+        <button class="primary" data-current-only="true" onclick="saveSelection()">Guardar selección</button>
+        <button class="secondary" data-current-only="true" onclick="saveWorkflow()">Guardar datos</button>
+        <button class="secondary" data-current-only="true" onclick="refreshQuote()">Refrescar / Reprice</button>
         <button class="secondary" onclick="showWhatsApp()">WhatsApp</button>
         <button class="secondary" onclick="showEmail()">Email</button>
         <button class="ghost" onclick="auditRules()">Auditar reglas</button>
-        <button class="ghost" onclick="markSent()">Marcar enviada</button>
-        <button class="danger" onclick="clearSelection()">Limpiar selección</button>
+        <button class="ghost" data-current-only="true" onclick="markSent()">Marcar enviada</button>
+        <button class="danger" data-current-only="true" onclick="clearSelection()">Limpiar selección</button>
       </div>
     </section>
 
@@ -240,6 +254,7 @@ document.addEventListener("click",event=>{
 let currentQuote = null;
 let currentCommercialQuote = null;
 let currentQuoteId = null;
+let currentVersionHistory = null;
 let historyRows = [];
 let historySearchTimer = null;
 let historyRequestSerial = 0;
@@ -368,6 +383,7 @@ async function runQuote(){
     if(data.quote){
       currentCommercialQuote=await api(`/quotes/${currentQuoteId}/commercial?selected_only=false`);
       renderQuote(data.quote,currentCommercialQuote);
+      await loadQuoteVersions(currentQuoteId);
       setStatus(`Cotización creada: ${currentQuoteId}`,"ok");
       await loadHistory();
     }else{
@@ -581,6 +597,83 @@ function commercialRuleLine(label,value){
   return `<div class="muted">${alreadyLabeled ? esc(text) : `<strong>${esc(label)}:</strong> ${esc(text)}`}</div>`;
 }
 
+function applyVersionMutability(data=currentVersionHistory){
+  const historical=Boolean(data && !data.is_latest);
+  const reason="Versión histórica: solo lectura. Abrí la versión actual para modificarla.";
+
+  document.querySelectorAll('[data-current-only="true"]').forEach(el=>{
+    el.disabled=historical;
+    if(historical)el.title=reason;
+    else if(el.title===reason)el.removeAttribute("title");
+  });
+
+  ["clientName","clientReference","quoteNotes"].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el){
+      el.disabled=historical;
+      el.title=historical?reason:"";
+    }
+  });
+
+  document.querySelectorAll(".rank-check").forEach(el=>{
+    el.disabled=historical;
+    el.title=historical?reason:"";
+  });
+}
+
+function renderQuoteVersions(data){
+  const el=document.getElementById("versionBar");
+  if(!el)return;
+
+  currentVersionHistory=data||null;
+
+  if(!data || Number(data.total_versions||0)<=1){
+    el.innerHTML="";
+    el.classList.add("hidden");
+    applyVersionMutability(data);
+    return;
+  }
+
+  const current=Number(data.current_version||1);
+  const total=Number(data.total_versions||1);
+  const currentLabel=data.is_latest
+    ? `Versión ${current} de ${total} · actual`
+    : `Versión ${current} de ${total} · histórica · solo lectura`;
+
+  const pills=(data.versions||[]).map(v=>{
+    const classes=[
+      "version-pill",
+      v.is_current?"current":"",
+      v.is_latest?"latest":""
+    ].filter(Boolean).join(" ");
+
+    return `<button class="${classes}" onclick="openQuote('${esc(v.quote_id)}')" `+
+      `title="${esc(v.quote_id)} · ${esc(v.status)}">v${esc(v.version)}</button>`;
+  }).join("");
+
+  el.innerHTML=
+    `<div><strong>Versionado</strong><div class="muted">${esc(currentLabel)}</div></div>`+
+    `<div class="version-pills">${pills}</div>`;
+  el.classList.remove("hidden");
+  applyVersionMutability(data);
+}
+
+async function loadQuoteVersions(quoteId=currentQuoteId){
+  if(!quoteId){
+    renderQuoteVersions(null);
+    return;
+  }
+
+  try{
+    const data=await api(`/quotes/${quoteId}/versions`);
+    if(quoteId!==currentQuoteId)return;
+    renderQuoteVersions(data);
+  }catch(e){
+    console.error("No se pudo cargar el historial de versiones",e);
+    if(quoteId===currentQuoteId)renderQuoteVersions(null);
+  }
+}
+
 function renderQuote(q,commercial=null){
   if(!q)return;
 
@@ -653,6 +746,7 @@ function renderQuote(q,commercial=null){
       ${flights}<div class="fares">${fares}</div>
     </div>`;
   }).join("");
+  applyVersionMutability(currentVersionHistory);
 }
 function selectedRanks(){return [...document.querySelectorAll(".rank-check:checked")].map(x=>Number(x.value));}
 
@@ -677,6 +771,8 @@ async function clearSelection(){
 }
 
 async function ensureSelection(){
+  if(currentVersionHistory && !currentVersionHistory.is_latest)return;
+
   const ranks=selectedRanks();
   if(ranks.length){
     await api(`/quotes/${currentQuoteId}/select`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ranks})});
@@ -983,6 +1079,7 @@ async function openQuote(id){
     document.getElementById("clientName").value=rec.client_name||"";
     document.getElementById("clientReference").value=rec.client_reference||"";
     document.getElementById("quoteNotes").value=rec.notes||"";
+    await loadQuoteVersions(currentQuoteId);
     await loadArtifacts(currentQuoteId);
     renderHistory();
   }catch(e){alert(e.message);}

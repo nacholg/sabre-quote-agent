@@ -20,11 +20,17 @@ from app.models.api import (
     StoredQuoteSummary,
     QuoteSelectionResponse,
     QuoteWorkflowResponse,
+    QuoteVersionHistory,
+    QuoteVersionItem,
 )
 
 
 QUOTE_TABLE = QuoteRow.__table__
 ARTIFACT_TABLE = QuoteArtifactRow.__table__
+
+
+class QuoteVersionConflictError(RuntimeError):
+    """Raised when a historical quote version is used for a mutable action."""
 
 
 def _utc_now() -> str:
@@ -358,14 +364,30 @@ class QuoteRepository:
 
         return int(result.rowcount or 0)
 
+    def assert_latest(
+        self,
+        quote_id: str,
+    ) -> StoredQuoteRecord:
+        """Return quote only when it is the latest mutable version."""
+        record = self.get(quote_id)
+        if record is None:
+            raise KeyError(quote_id)
+
+        if record.refreshed_quote_id or record.status == "superseded":
+            latest = record.refreshed_quote_id or "una versión posterior"
+            raise QuoteVersionConflictError(
+                "La cotización es una versión histórica y es de solo lectura. "
+                f"Usá la versión actual ({latest}) para modificarla."
+            )
+
+        return record
+
     def select(
         self,
         quote_id: str,
         ranks: list[int],
     ) -> QuoteSelectionResponse:
-        record = self.get(quote_id)
-        if record is None:
-            raise KeyError(quote_id)
+        record = self.assert_latest(quote_id)
 
         available_ranks = {
             int(item.get("rank"))
@@ -418,8 +440,7 @@ class QuoteRepository:
         self,
         quote_id: str,
     ) -> QuoteSelectionResponse:
-        if self.get(quote_id) is None:
-            raise KeyError(quote_id)
+        self.assert_latest(quote_id)
 
         now = _utc_now()
 
@@ -452,9 +473,7 @@ class QuoteRepository:
         notes: str | None = None,
         status: str | None = None,
     ) -> QuoteWorkflowResponse:
-        record = self.get(quote_id)
-        if record is None:
-            raise KeyError(quote_id)
+        record = self.assert_latest(quote_id)
 
         allowed = {
             "active",
@@ -516,6 +535,97 @@ class QuoteRepository:
             sent_at=updated.sent_at,
             parent_quote_id=updated.parent_quote_id,
             refreshed_quote_id=updated.refreshed_quote_id,
+        )
+
+    def version_history(
+        self,
+        quote_id: str,
+    ) -> QuoteVersionHistory:
+        """Return the complete refresh/reprice lineage for one quote.
+
+        Versioning uses the existing parent_quote_id/refreshed_quote_id links,
+        so this is portable across SQLite and PostgreSQL and needs no schema
+        migration.
+        """
+        current = self.get(quote_id)
+        if current is None:
+            raise KeyError(quote_id)
+
+        # Walk backwards to the root.
+        root = current
+        seen: set[str] = set()
+        while root.parent_quote_id:
+            if root.quote_id in seen:
+                raise RuntimeError(
+                    f"Ciclo detectado en versiones de cotización: {root.quote_id}"
+                )
+            seen.add(root.quote_id)
+
+            parent = self.get(root.parent_quote_id)
+            if parent is None:
+                raise RuntimeError(
+                    "Cadena de versiones incompleta: "
+                    f"no existe parent_quote_id={root.parent_quote_id}"
+                )
+            root = parent
+
+        # Walk forwards from the root to the latest quote.
+        chain: list[StoredQuoteRecord] = []
+        cursor = root
+        seen.clear()
+
+        while True:
+            if cursor.quote_id in seen:
+                raise RuntimeError(
+                    f"Ciclo detectado en versiones de cotización: {cursor.quote_id}"
+                )
+            seen.add(cursor.quote_id)
+            chain.append(cursor)
+
+            if not cursor.refreshed_quote_id:
+                break
+
+            next_quote = self.get(cursor.refreshed_quote_id)
+            if next_quote is None:
+                raise RuntimeError(
+                    "Cadena de versiones incompleta: "
+                    f"no existe refreshed_quote_id={cursor.refreshed_quote_id}"
+                )
+            cursor = next_quote
+
+        quote_ids = [item.quote_id for item in chain]
+        try:
+            current_index = quote_ids.index(quote_id)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"La cotización {quote_id} no pertenece a su propia cadena de versiones."
+            ) from exc
+
+        latest_quote_id = chain[-1].quote_id
+        versions = [
+            QuoteVersionItem(
+                quote_id=item.quote_id,
+                version=index + 1,
+                status=item.status,
+                source=item.source,
+                created_at=item.created_at,
+                updated_at=item.updated_at,
+                selected_ranks=item.selected_ranks,
+                sent_at=item.sent_at,
+                is_current=item.quote_id == quote_id,
+                is_latest=item.quote_id == latest_quote_id,
+            )
+            for index, item in enumerate(chain)
+        ]
+
+        return QuoteVersionHistory(
+            quote_id=quote_id,
+            root_quote_id=chain[0].quote_id,
+            latest_quote_id=latest_quote_id,
+            current_version=current_index + 1,
+            total_versions=len(chain),
+            is_latest=quote_id == latest_quote_id,
+            versions=versions,
         )
 
     def link_refresh(

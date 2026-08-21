@@ -31,9 +31,7 @@ def _fare_map(option: ItineraryOption) -> dict[tuple[str, str, str], Decimal]:
 
 
 async def refresh_stored_quote(repo: QuoteRepository, quote_id: str) -> QuoteRefreshResponse:
-    record = repo.get(quote_id)
-    if record is None:
-        raise KeyError(quote_id)
+    record = repo.assert_latest(quote_id)
 
     request = QuoteSearchAPIRequest.model_validate(record.search_request)
     request.persist = False
