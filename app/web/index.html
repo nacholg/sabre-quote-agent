@@ -61,8 +61,49 @@
     .pax-price,.pax-total{display:flex;justify-content:space-between;gap:12px;padding:3px 0}
     .pax-total{border-top:1px solid var(--line);margin-top:5px;padding-top:7px;font-weight:750}
     .actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:14px}
-    .history-item{border:1px solid var(--line);border-radius:10px;padding:10px;margin:8px 0;background:white;cursor:pointer}
-    .history-item:hover{border-color:#aab8ca}
+    .history-item{
+      border:1px solid var(--line);border-radius:10px;padding:10px;margin:8px 0;
+      background:white;cursor:pointer;position:relative;
+      transition:
+        transform 120ms ease,
+        border-color 120ms ease,
+        box-shadow 120ms ease,
+        background-color 120ms ease;
+      user-select:none;
+    }
+    .history-item::after{
+      content:"›";
+      position:absolute;
+      right:10px;
+      top:50%;
+      transform:translateY(-50%) translateX(-2px);
+      color:#98a2b3;
+      font-size:18px;
+      opacity:0;
+      transition:opacity 120ms ease,transform 120ms ease,color 120ms ease;
+      pointer-events:none;
+    }
+    .history-item:hover{
+      border-color:#b8c5d8;
+      background:#fbfcff;
+      box-shadow:0 5px 14px rgba(28,42,65,.08);
+      transform:translateY(-1px);
+    }
+    .history-item:hover::after{
+      opacity:1;
+      transform:translateY(-50%) translateX(0);
+      color:var(--accent);
+    }
+    .history-item:active{
+      transform:translateY(1px) scale(.99);
+      box-shadow:0 1px 4px rgba(28,42,65,.08);
+      background:#f7f9ff;
+    }
+    .history-item:focus-visible{
+      outline:3px solid rgba(76,111,255,.20);
+      outline-offset:2px;
+      border-color:var(--accent);
+    }
     .history-item strong{font-size:13px}
     .history-item div{font-size:12px;color:var(--muted);margin-top:4px}
     .preview{white-space:pre-wrap;background:#101828;color:#f9fafb;border-radius:12px;padding:16px;overflow:auto;max-height:520px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
@@ -75,7 +116,15 @@
       padding:10px 11px;background:white
     }
     .history-count{margin-top:6px;font-size:11px;color:var(--muted)}
-    .history-item.active{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent2)}
+    .history-item.active{
+      border-color:var(--accent);
+      background:#f7f9ff;
+      box-shadow:0 0 0 2px var(--accent2);
+    }
+    .history-item.active::after{
+      opacity:.72;
+      color:var(--accent);
+    }
     .version-bar{
       margin-top:14px;padding:11px 12px;border:1px solid var(--line);
       border-radius:11px;background:#fafcff;
@@ -528,6 +577,31 @@ function renderInterpretation(i){
 }
 
 
+function renderStoredInterpretation(rec){
+  const stored=rec?.interpretation;
+  if(stored?.search_request){
+    renderInterpretation(stored);
+    return;
+  }
+
+  const request=rec?.search_request;
+  if(request){
+    renderInterpretation({
+      search_request:request,
+      assumptions:[],
+      warnings:[]
+    });
+    return;
+  }
+
+  const el=document.getElementById("interpretation");
+  if(el){
+    el.innerHTML="";
+    el.classList.add("hidden");
+  }
+}
+
+
 function passengerPriceLabel(p){
   const type=String(p?.passenger_type||"").toUpperCase();
   if(type==="ADT")return "Adulto";
@@ -771,8 +845,11 @@ function renderQuote(q,commercial=null){
   const countLabel=availableCount>canonicalCount
     ? `${canonicalCount} de ${availableCount} resultados comerciales`
     : `${canonicalCount || availableCount || q.result_count || 0} resultados comerciales`;
+  const operationRef=q?.operation_id
+    ? ` · Ref. ${q.operation_id}`
+    : "";
   document.getElementById("quoteMeta").textContent=
-    `${countLabel} · ${cq?.environment||q.environment||""}`;
+    `${countLabel} · ${cq?.environment||q.environment||""}${operationRef}`;
 
   const timeMatchEl=document.getElementById("timeMatchStatus");
   const tm=q.time_match||{status:"not_requested"};
@@ -1125,7 +1202,10 @@ function renderHistory(){
     const active=q.quote_id===currentQuoteId?" active":"";
     const route=[q.origin,q.destination].filter(Boolean).join(" → ");
     const client=q.client_name||q.client_reference||"";
-    return `<div class="history-item${active}" onclick="openQuote('${esc(q.quote_id)}')">`+
+    return `<div class="history-item${active}" role="button" tabindex="0" `+
+      `aria-label="Abrir cotización ${esc(route||q.quote_id||"")}" `+
+      `onclick="openQuote('${esc(q.quote_id)}')" `+
+      `onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openQuote('${esc(q.quote_id)}')}">`+
       `<strong>${esc(route||q.quote_id||"Cotización")}</strong>`+
       `${client?`<div>${esc(client)}</div>`:""}`+
       `<div>${esc(q.departure_date||"")}${q.return_date?" / "+esc(q.return_date):""}</div>`+
@@ -1169,9 +1249,14 @@ async function openQuote(id){
     currentQuote=rec.quote_response;
     currentQuote.selected_ranks=rec.selected_ranks||[];
     currentCommercialQuote=commercial;
+    renderStoredInterpretation(rec);
     renderQuote(currentQuote,currentCommercialQuote);
     document.getElementById("quoteId").textContent=id;
-    document.getElementById("quoteMeta").textContent=`Guardada · ${rec.status} · ${rec.source}`;
+    const operationRef=currentQuote?.operation_id
+      ? ` · Ref. ${currentQuote.operation_id}`
+      : "";
+    document.getElementById("quoteMeta").textContent=
+      `Guardada · ${rec.status} · ${rec.source}${operationRef}`;
     if(rec.agent_text) document.getElementById("prompt").value=rec.agent_text;
     document.getElementById("clientName").value=rec.client_name||"";
     document.getElementById("clientReference").value=rec.client_reference||"";

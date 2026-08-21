@@ -131,40 +131,121 @@ def _render_single_fare(lines: list[str], fare: FareOption, option: ItineraryOpt
         lines.append(f"Impuesto Q1 incluido: {q1_currency} {_money(fare.q1_amount, q1_currency)}")
 
 
-def _select_commercial_fares(fare_options: list[FareOption]) -> list[FareOption]:
-    """Return a compact commercial ladder: 2 Economy, 1 Premium, 1 Business.
+def _distinct_brand_ladder(fares: list[FareOption]) -> list[FareOption]:
+    """Return the cheapest fare for each distinct branded product."""
+    ordered = sorted(fares, key=lambda fare: fare.price_per_passenger)
+    branded = [
+        fare
+        for fare in ordered
+        if (fare.brand_name or fare.brand_code)
+    ]
+    if not branded:
+        return ordered[:1]
 
-    All Sabre brands remain in normalized JSON; this only controls client output.
-    Economy Flexible is preferred as the second Economy product, which suppresses
-    intermediate products such as AA Main Plus when a flexible brand exists.
+    result: list[FareOption] = []
+    seen: set[str] = set()
+
+    for fare in branded:
+        key = (
+            fare.brand_name
+            or fare.brand_code
+            or ""
+        ).strip().upper()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(fare)
+
+    return result
+
+
+def _select_commercial_fares(
+    fare_options: list[FareOption],
+    *,
+    requested_cabins: set[str] | None = None,
+) -> list[FareOption]:
+    """Return a compact ladder while preserving requested-cabin branded choices.
+
+    Economy keeps the existing compact two-product ladder. For Premium Economy,
+    Business and First, all distinct branded products are exposed when that cabin
+    was explicitly requested. Companion cabins remain compact.
     """
+    requested = {
+        str(cabin).strip().lower().replace("_", " ")
+        for cabin in (requested_cabins or set())
+    }
+
     available = sorted(fare_options, key=lambda fare: fare.price_per_passenger)
-    economy = [fare for fare in available if fare.cabin.lower() == "economy"]
-    premium = [fare for fare in available if fare.cabin.lower() == "premium economy"]
-    business = [fare for fare in available if fare.cabin.lower() == "business"]
+    groups = {
+        "economy": [
+            fare for fare in available
+            if fare.cabin.lower() == "economy"
+        ],
+        "premium economy": [
+            fare for fare in available
+            if fare.cabin.lower() == "premium economy"
+        ],
+        "business": [
+            fare for fare in available
+            if fare.cabin.lower() == "business"
+        ],
+        "first": [
+            fare for fare in available
+            if fare.cabin.lower() == "first"
+        ],
+    }
 
     selected: list[FareOption] = []
+
+    economy = groups["economy"]
     if economy:
         lowest = economy[0]
         selected.append(lowest)
-        remaining = [fare for fare in economy[1:] if fare is not lowest]
+        remaining = [
+            fare for fare in economy[1:]
+            if fare is not lowest
+        ]
         flexible = [
             fare for fare in remaining
             if "FLEX" in (fare.brand_name or "").upper()
         ]
-        second = min(flexible, key=lambda f: f.price_per_passenger) if flexible else (
-            min(remaining, key=lambda f: f.price_per_passenger) if remaining else None
+        second = (
+            min(flexible, key=lambda f: f.price_per_passenger)
+            if flexible
+            else (
+                min(remaining, key=lambda f: f.price_per_passenger)
+                if remaining
+                else None
+            )
         )
         if second is not None:
             selected.append(second)
-    if premium:
-        selected.append(min(premium, key=lambda f: f.price_per_passenger))
-    if business:
-        selected.append(min(business, key=lambda f: f.price_per_passenger))
+
+    for cabin_name in (
+        "premium economy",
+        "business",
+        "first",
+    ):
+        fares = groups[cabin_name]
+        if not fares:
+            continue
+
+        if cabin_name in requested:
+            selected.extend(_distinct_brand_ladder(fares))
+        else:
+            selected.append(
+                min(fares, key=lambda f: f.price_per_passenger)
+            )
+
     return selected
 
 
-def _render_branded_fares(lines: list[str], option: ItineraryOption) -> list[FareOption]:
+def _render_branded_fares(
+    lines: list[str],
+    option: ItineraryOption,
+    *,
+    requested_cabins: set[str] | None = None,
+) -> list[FareOption]:
     currencies = option.fare_options_by_currency or {}
     has_brand = any(fare.brand_name for items in currencies.values() for fare in items)
     if not has_brand:
@@ -174,7 +255,10 @@ def _render_branded_fares(lines: list[str], option: ItineraryOption) -> list[Far
     all_selected: list[FareOption] = []
     for currency in ("USD", "ARS"):
         fare_options = currencies.get(currency) or []
-        commercial = _select_commercial_fares(fare_options)
+        commercial = _select_commercial_fares(
+            fare_options,
+            requested_cabins=requested_cabins,
+        )
         if commercial:
             selected_by_currency.append((currency, commercial))
             all_selected.extend(commercial)
@@ -200,8 +284,13 @@ def _render_branded_fares(lines: list[str], option: ItineraryOption) -> list[Far
     return all_selected
 
 def _render_option(
-    lines: list[str], option: ItineraryOption, option_index: int, recommended: bool,
-    stops: int | None = None, duration_minutes: int | None = None,
+    lines: list[str],
+    option: ItineraryOption,
+    option_index: int,
+    recommended: bool,
+    stops: int | None = None,
+    duration_minutes: int | None = None,
+    requested_cabins: set[str] | None = None,
 ) -> None:
     title = f"OPCIÓN {option_index}"
     if recommended:
@@ -219,7 +308,11 @@ def _render_option(
         )
 
     lines.append("")
-    rendered_brands = _render_branded_fares(lines, option)
+    rendered_brands = _render_branded_fares(
+        lines,
+        option,
+        requested_cabins=requested_cabins,
+    )
     if not rendered_brands:
         for fare in _ordered_fares(option):
             _render_single_fare(lines, fare, option)
@@ -249,7 +342,11 @@ def _render_option(
     lines.extend(["", ""])
 
 
-def render_ranked_client_quote(ranked: list[RankedItinerary]) -> str:
+def render_ranked_client_quote(
+    ranked: list[RankedItinerary],
+    *,
+    requested_cabins: set[str] | None = None,
+) -> str:
     if not ranked:
         return "No se encontraron itinerarios disponibles para los criterios indicados.\n"
 
@@ -259,8 +356,15 @@ def render_ranked_client_quote(ranked: list[RankedItinerary]) -> str:
 
     for item in ranked:
         option = item.option
-        _render_option(lines, option, item.rank, recommended=item.rank == 1,
-                       stops=item.stops, duration_minutes=item.duration_minutes)
+        _render_option(
+            lines,
+            option,
+            item.rank,
+            recommended=item.rank == 1,
+            stops=item.stops,
+            duration_minutes=item.duration_minutes,
+            requested_cabins=requested_cabins,
+        )
         for segment in option.segments:
             airline_codes[segment.marketing_carrier] = None
             airport_codes[segment.departure_airport] = None

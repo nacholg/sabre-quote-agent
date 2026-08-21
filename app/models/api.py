@@ -197,6 +197,10 @@ class TimeMatchDiagnostics(BaseModel):
 
 class QuoteSearchAPIResponse(BaseModel):
     quote_id: str | None = None
+    operation_id: str | None = Field(
+        default=None,
+        pattern=r"^[0-9A-F]{8}$",
+    )
     environment: str
     effective_currencies: list[str]
     calls: list[SabreSearchCall]

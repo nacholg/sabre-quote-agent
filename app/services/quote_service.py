@@ -530,6 +530,7 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
         )
 
     response = QuoteSearchAPIResponse(
+        operation_id=_operation_id,
         environment=settings.sabre_env,
         effective_currencies=[key for key in keys if key != "OFFICIAL"],
         calls=calls,
@@ -543,7 +544,13 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
             _api_ranked_option(item)
             for item in candidate_ranked
         ],
-        client_quote=render_ranked_client_quote(ranked),
+        client_quote=render_ranked_client_quote(
+            ranked,
+            requested_cabins={
+                _CABIN_TO_FARE_NAME[cabin]
+                for cabin in request.effective_cabins
+            },
+        ),
         time_match=time_filter.diagnostics,
     )
 

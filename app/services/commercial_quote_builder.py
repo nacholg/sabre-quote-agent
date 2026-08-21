@@ -87,11 +87,20 @@ def _quote_items(
     ]
 
 
-def _commercial_fares(option: ItineraryOption) -> list[FareOption]:
+def _commercial_fares(
+    option: ItineraryOption,
+    *,
+    requested_cabins: set[str] | None = None,
+) -> list[FareOption]:
     selected: list[FareOption] = []
     currencies = option.fare_options_by_currency or {}
     for currency in ("USD", "ARS"):
-        selected.extend(_select_commercial_fares(currencies.get(currency) or []))
+        selected.extend(
+            _select_commercial_fares(
+                currencies.get(currency) or [],
+                requested_cabins=requested_cabins,
+            )
+        )
     if selected:
         return selected
 
@@ -267,6 +276,21 @@ def _commercial_fare(
     )
 
 
+def _requested_cabins(request: dict) -> set[str]:
+    raw = list(request.get("cabins") or [])
+    if not raw and request.get("cabin"):
+        raw = [request.get("cabin")]
+
+    return {
+        str(getattr(value, "value", value))
+        .strip()
+        .lower()
+        .replace("_", " ")
+        for value in raw
+        if value
+    }
+
+
 def _request_trip_shape(
     request: dict,
 ) -> tuple[list[SearchLeg], str | None]:
@@ -350,6 +374,9 @@ def build_commercial_quote(
     legs, trip_type = _request_trip_shape(
         record.search_request
     )
+    requested_cabins = _requested_cabins(
+        record.search_request
+    )
 
     options: list[CommercialOption] = []
 
@@ -386,7 +413,8 @@ def build_commercial_quote(
                         summaries,
                     )
                     for fare in _commercial_fares(
-                        itinerary
+                        itinerary,
+                        requested_cabins=requested_cabins,
                     )
                 ],
             )
