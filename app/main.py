@@ -90,7 +90,12 @@ async def get_quote(quote_id: str) -> StoredQuoteRecord:
     record = get_quote_repository().get(quote_id)
     if record is None:
         raise HTTPException(status_code=404, detail=f"Cotización no encontrada: {quote_id}")
-    return record
+
+    # Expansion candidates remain server-side and are fetched progressively
+    # through the commercial endpoint.
+    public_record = record.model_copy(deep=True)
+    public_record.quote_response.pop("_candidate_options", None)
+    return public_record
 
 
 
@@ -124,6 +129,8 @@ async def get_quote_versions(
 async def get_commercial_quote(
     quote_id: str,
     selected_only: bool = False,
+    offset: int = Query(default=0, ge=0, le=49),
+    limit: int | None = Query(default=None, ge=1, le=50),
 ) -> CommercialQuote:
     record = get_quote_repository().get(quote_id)
     if record is None:
@@ -136,6 +143,8 @@ async def get_commercial_quote(
         return build_commercial_quote(
             record,
             selected_only=selected_only,
+            offset=offset,
+            limit=limit,
         )
     except ValueError as exc:
         raise HTTPException(

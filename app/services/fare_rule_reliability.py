@@ -159,7 +159,11 @@ def audit_stored_quote(
     selected_only: bool = True,
     air_rules_by_fare_basis: dict[str, AirRulesParsedResponse] | None = None,
 ) -> FareRuleAuditResponse:
-    raw_options = record.quote_response.get("options") or []
+    raw_options = list(
+        record.quote_response.get("options") or []
+    ) + list(
+        record.quote_response.get("_candidate_options") or []
+    )
     if selected_only and record.selected_ranks:
         wanted = set(record.selected_ranks)
         raw_options = [item for item in raw_options if int(item.get("rank", 0)) in wanted]

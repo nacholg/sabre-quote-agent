@@ -30,7 +30,11 @@ def _selected_raw_options(
     *,
     selected_only: bool,
 ) -> list[dict]:
-    raw = list(record.quote_response.get("options") or [])
+    raw = list(
+        record.quote_response.get("options") or []
+    ) + list(
+        record.quote_response.get("_candidate_options") or []
+    )
     if selected_only and record.selected_ranks:
         wanted = set(record.selected_ranks)
         raw = [

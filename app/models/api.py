@@ -201,7 +201,13 @@ class QuoteSearchAPIResponse(BaseModel):
     effective_currencies: list[str]
     calls: list[SabreSearchCall]
     result_count: int
+    available_option_count: int = 0
     options: list[RankedOption]
+    candidate_options: list[RankedOption] = Field(
+        default_factory=list,
+        exclude=True,
+        repr=False,
+    )
     client_quote: str
     time_match: TimeMatchDiagnostics = Field(default_factory=TimeMatchDiagnostics)
 

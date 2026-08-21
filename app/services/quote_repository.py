@@ -145,6 +145,13 @@ class QuoteRepository:
             else interpretation
         )
 
+        response_data = response_copy.model_dump(mode="json")
+        if response_copy.candidate_options:
+            response_data["_candidate_options"] = [
+                item.model_dump(mode="json")
+                for item in response_copy.candidate_options
+            ]
+
         values = {
             "quote_id": quote_id,
             "created_at": now,
@@ -161,7 +168,10 @@ class QuoteRepository:
                 else None
             ),
             "search_request_json": request.model_dump_json(),
-            "quote_response_json": response_copy.model_dump_json(),
+            "quote_response_json": json.dumps(
+                response_data,
+                ensure_ascii=False,
+            ),
             "selected_ranks_json": "[]",
             "client_name": None,
             "client_reference": None,
@@ -389,11 +399,14 @@ class QuoteRepository:
     ) -> QuoteSelectionResponse:
         record = self.assert_latest(quote_id)
 
+        stored_options = list(
+            record.quote_response.get("options") or []
+        ) + list(
+            record.quote_response.get("_candidate_options") or []
+        )
         available_ranks = {
             int(item.get("rank"))
-            for item in (
-                record.quote_response.get("options") or []
-            )
+            for item in stored_options
             if item.get("rank") is not None
         }
 

@@ -421,47 +421,75 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
     ]
 
     if search.preferred_carriers:
-        ranked = ranked_all[: search.max_options]
+        ranked_visible = ranked_all[: search.max_options]
     else:
-        ranked = _diversify_ranked_by_carrier(
+        ranked_visible = _diversify_ranked_by_carrier(
             ranked_all,
             search.max_options,
         )
 
     # Carrier diversification chooses WHICH options survive, but temporal
     # intent must remain authoritative for their final display order.
-    ranked = reorder_ranked_by_time(
-        ranked,
+    ranked_visible = reorder_ranked_by_time(
+        ranked_visible,
         time_filter.distance_by_signature,
     )
-    ranked = [
+    ranked_visible = [
         replace(item, rank=index)
-        for index, item in enumerate(ranked, start=1)
+        for index, item in enumerate(ranked_visible, start=1)
     ]
 
-    ranked = assign_commercial_labels(
-        ranked,
+    # Keep additional ranked candidates from the SAME BFM response. The UI
+    # receives five at a time; clicking "Ver 5 más" does not call Sabre again.
+    visible_option_ids = {
+        id(item.option)
+        for item in ranked_visible
+    }
+    remaining_ranked = [
+        item
+        for item in ranked_all
+        if id(item.option) not in visible_option_ids
+    ]
+    expanded_ranked = (ranked_visible + remaining_ranked)[:50]
+    expanded_ranked = [
+        replace(item, rank=index)
+        for index, item in enumerate(expanded_ranked, start=1)
+    ]
+    expanded_ranked = assign_commercial_labels(
+        expanded_ranked,
         time_distance_by_signature=time_filter.distance_by_signature,
         has_time_constraints=bool(search.time_constraints),
     )
+
+    visible_count = min(search.max_options, len(expanded_ranked))
+    ranked = expanded_ranked[:visible_count]
+    candidate_ranked = expanded_ranked[visible_count:]
+
+    def _api_ranked_option(item) -> RankedOption:
+        return RankedOption(
+            rank=item.rank,
+            score=item.score,
+            stops=item.stops,
+            duration_minutes=item.duration_minutes,
+            ranking_currency=item.ranking_currency,
+            ranking_price=item.ranking_price,
+            commercial_labels=list(item.commercial_labels),
+            itinerary=item.option,
+        )
 
     response = QuoteSearchAPIResponse(
         environment=settings.sabre_env,
         effective_currencies=[key for key in keys if key != "OFFICIAL"],
         calls=calls,
         result_count=len(normalized),
+        available_option_count=len(expanded_ranked),
         options=[
-            RankedOption(
-                rank=item.rank,
-                score=item.score,
-                stops=item.stops,
-                duration_minutes=item.duration_minutes,
-                ranking_currency=item.ranking_currency,
-                ranking_price=item.ranking_price,
-                commercial_labels=list(item.commercial_labels),
-                itinerary=item.option,
-            )
+            _api_ranked_option(item)
             for item in ranked
+        ],
+        candidate_options=[
+            _api_ranked_option(item)
+            for item in candidate_ranked
         ],
         client_quote=render_ranked_client_quote(ranked),
         time_match=time_filter.diagnostics,

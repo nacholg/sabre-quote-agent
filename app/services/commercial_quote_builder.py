@@ -44,13 +44,19 @@ def _quote_items(
     record: StoredQuoteRecord,
     *,
     selected_only: bool,
+    offset: int = 0,
+    limit: int | None = None,
 ) -> list[dict]:
     options = list(
         record.quote_response.get("options") or []
+    ) + list(
+        record.quote_response.get("_candidate_options") or []
     )
 
     if not selected_only:
-        return options
+        start = max(0, int(offset))
+        end = None if limit is None else start + max(0, int(limit))
+        return options[start:end]
 
     if not record.selected_ranks:
         raise ValueError(
@@ -328,10 +334,14 @@ def build_commercial_quote(
     record: StoredQuoteRecord,
     *,
     selected_only: bool = True,
+    offset: int = 0,
+    limit: int | None = None,
 ) -> CommercialQuote:
     items = _quote_items(
         record,
         selected_only=selected_only,
+        offset=offset,
+        limit=limit,
     )
     summaries = _commercial_rule_map(
         record,

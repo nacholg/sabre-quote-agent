@@ -7,20 +7,22 @@ def _source() -> str:
 
 def test_ui_fetches_canonical_commercial_quote_after_search():
     source = _source()
+    assert "currentCommercialQuote=await api(" in source
     assert (
-        "currentCommercialQuote=await api("
-        "`/quotes/${currentQuoteId}/commercial?selected_only=false`"
-        ")" in source
+        "`/quotes/${currentQuoteId}/commercial?"
+        "selected_only=false&offset=0&limit=${currentCommercialVisibleLimit}`"
+        in source
     )
     assert "renderQuote(data.quote,currentCommercialQuote);" in source
 
 
 def test_ui_fetches_canonical_commercial_quote_when_opening_history():
     source = _source()
+    assert "const commercial=await api(" in source
     assert (
-        "const commercial=await api("
-        "`/quotes/${id}/commercial?selected_only=false`"
-        ");" in source
+        "`/quotes/${id}/commercial?"
+        "selected_only=false&offset=0&limit=${currentCommercialVisibleLimit}`"
+        in source
     )
     assert "currentCommercialQuote=commercial;" in source
     assert "renderQuote(currentQuote,currentCommercialQuote);" in source

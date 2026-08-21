@@ -212,6 +212,7 @@
         <input id="quoteNotes" placeholder="Notas internas" style="border:1px solid var(--line);border-radius:10px;padding:10px">
       </div>
       <div id="options"></div>
+      <div id="moreOptions" class="actions hidden"></div>
       <div class="actions">
         <button class="primary" data-current-only="true" onclick="saveSelection()">Guardar selección</button>
         <button class="secondary" data-current-only="true" onclick="saveWorkflow()">Guardar datos</button>
@@ -255,6 +256,8 @@ let currentQuote = null;
 let currentCommercialQuote = null;
 let currentQuoteId = null;
 let currentVersionHistory = null;
+let currentCommercialVisibleLimit = 5;
+const commercialPageSize = 5;
 let historyRows = [];
 let historySearchTimer = null;
 let historyRequestSerial = 0;
@@ -408,7 +411,10 @@ async function runQuote(){
     renderArtifacts();
 
     if(data.quote){
-      currentCommercialQuote=await api(`/quotes/${currentQuoteId}/commercial?selected_only=false`);
+      currentCommercialVisibleLimit=commercialPageSize;
+      currentCommercialQuote=await api(
+        `/quotes/${currentQuoteId}/commercial?selected_only=false&offset=0&limit=${currentCommercialVisibleLimit}`
+      );
       renderQuote(data.quote,currentCommercialQuote);
       await loadQuoteVersions(currentQuoteId);
       setStatus(`Cotización creada: ${currentQuoteId}`,"ok");
@@ -701,6 +707,58 @@ async function loadQuoteVersions(quoteId=currentQuoteId){
   }
 }
 
+function commercialAvailableCount(q=currentQuote){
+  const available=Number(q?.available_option_count||0);
+  if(available>0)return available;
+  return Number((q?.options||[]).length||0);
+}
+
+function renderMoreOptionsControl(){
+  const el=document.getElementById("moreOptions");
+  if(!el)return;
+
+  const visible=Number((currentCommercialQuote?.options||[]).length||0);
+  const total=commercialAvailableCount(currentQuote);
+
+  if(!currentQuoteId || visible>=total){
+    el.innerHTML="";
+    el.classList.add("hidden");
+    return;
+  }
+
+  const remaining=Math.max(0,total-visible);
+  const next=Math.min(commercialPageSize,remaining);
+  el.innerHTML=
+    `<button class="secondary" onclick="loadMoreCommercialOptions()">Ver ${next} más</button>`+
+    `<span class="muted">Mostrando ${visible} de ${total} opciones disponibles.</span>`;
+  el.classList.remove("hidden");
+}
+
+async function loadMoreCommercialOptions(){
+  if(!currentQuoteId)return;
+
+  const total=commercialAvailableCount(currentQuote);
+  const nextLimit=Math.min(
+    total,
+    currentCommercialVisibleLimit+commercialPageSize,
+  );
+  if(nextLimit<=currentCommercialVisibleLimit)return;
+
+  const checked=selectedRanks();
+
+  try{
+    const commercial=await api(
+      `/quotes/${currentQuoteId}/commercial?selected_only=false&offset=0&limit=${nextLimit}`
+    );
+    currentCommercialVisibleLimit=nextLimit;
+    currentCommercialQuote=commercial;
+    if(currentQuote)currentQuote.selected_ranks=checked;
+    renderQuote(currentQuote,currentCommercialQuote);
+  }catch(e){
+    alert(e.message);
+  }
+}
+
 function renderQuote(q,commercial=null){
   if(!q)return;
 
@@ -709,8 +767,12 @@ function renderQuote(q,commercial=null){
   document.getElementById("quoteId").textContent=q.quote_id||cq?.quote_id||"";
 
   const canonicalCount=(cq?.options||[]).length;
+  const availableCount=commercialAvailableCount(q);
+  const countLabel=availableCount>canonicalCount
+    ? `${canonicalCount} de ${availableCount} resultados comerciales`
+    : `${canonicalCount || availableCount || q.result_count || 0} resultados comerciales`;
   document.getElementById("quoteMeta").textContent=
-    `${canonicalCount || q.result_count || 0} resultados comerciales · ${cq?.environment||q.environment||""}`;
+    `${countLabel} · ${cq?.environment||q.environment||""}`;
 
   const timeMatchEl=document.getElementById("timeMatchStatus");
   const tm=q.time_match||{status:"not_requested"};
@@ -773,6 +835,7 @@ function renderQuote(q,commercial=null){
       ${flights}<div class="fares">${fares}</div>
     </div>`;
   }).join("");
+  renderMoreOptionsControl();
   applyVersionMutability(currentVersionHistory);
 }
 function selectedRanks(){return [...document.querySelectorAll(".rank-check:checked")].map(x=>Number(x.value));}
@@ -1094,7 +1157,10 @@ async function loadHistory(){
 async function openQuote(id){
   try{
     const rec=await api(`/quotes/${id}`);
-    const commercial=await api(`/quotes/${id}/commercial?selected_only=false`);
+    currentCommercialVisibleLimit=commercialPageSize;
+    const commercial=await api(
+      `/quotes/${id}/commercial?selected_only=false&offset=0&limit=${currentCommercialVisibleLimit}`
+    );
     currentQuoteId=id;
     currentQuote=rec.quote_response;
     currentQuote.selected_ranks=rec.selected_ranks||[];

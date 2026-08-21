@@ -55,11 +55,19 @@ async def refresh_stored_quote(repo: QuoteRepository, quote_id: str) -> QuoteRef
 
     fresh_by_sig = {
         itinerary_signature(item.itinerary): item
-        for item in fresh.options
+        for item in (
+            list(fresh.options)
+            + list(fresh.candidate_options)
+        )
     }
     comparisons = []
     selected = set(record.selected_ranks or [])
-    for old_item in (record.quote_response.get("options") or []):
+    old_items = list(
+        record.quote_response.get("options") or []
+    ) + list(
+        record.quote_response.get("_candidate_options") or []
+    )
+    for old_item in old_items:
         old_rank = int(old_item["rank"])
         if selected and old_rank not in selected:
             continue
