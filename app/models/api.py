@@ -403,6 +403,29 @@ class QuoteWorkflowResponse(BaseModel):
     refreshed_quote_id: str | None = None
 
 
+class QuoteVersionItem(BaseModel):
+    quote_id: str
+    version: int = Field(ge=1)
+    status: str
+    source: str
+    created_at: str
+    updated_at: str
+    selected_ranks: list[int] = Field(default_factory=list)
+    sent_at: str | None = None
+    is_current: bool = False
+    is_latest: bool = False
+
+
+class QuoteVersionHistory(BaseModel):
+    quote_id: str
+    root_quote_id: str
+    latest_quote_id: str
+    current_version: int = Field(ge=1)
+    total_versions: int = Field(ge=1)
+    is_latest: bool
+    versions: list[QuoteVersionItem] = Field(min_length=1)
+
+
 class FarePriceChange(BaseModel):
     cabin: str
     brand_name: str | None = None
