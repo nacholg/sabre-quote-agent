@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -45,7 +46,7 @@ def test_persisted_search_checks_database_before_sabre(monkeypatch):
     monkeypatch.setattr(
         quote_service_module,
         "get_settings",
-        lambda _: object(),
+        lambda _: SimpleNamespace(sabre_env="CERT"),
     )
     monkeypatch.setattr(
         quote_service_module,

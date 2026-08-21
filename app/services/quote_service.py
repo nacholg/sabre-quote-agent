@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from dataclasses import replace
 from time import perf_counter
 
@@ -25,6 +26,16 @@ from app.services.time_constraint_filter import (
     reorder_ranked_by_time,
 )
 
+
+
+def _new_operation_id() -> str:
+    """Short non-sensitive correlation id for one quote search."""
+    return uuid.uuid4().hex[:8].upper()
+
+
+def _quote_log(operation_id: str, message: str) -> None:
+    """Emit one consistently correlated operational log line."""
+    print(f"[QUOTE {operation_id}] {message}")
 
 
 _CABIN_TO_FARE_NAME = {
@@ -183,21 +194,50 @@ async def _timed_primary_bfm_search(
 
 
 async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse:
+    _operation_id = _new_operation_id()
     _quote_started = perf_counter()
     _bfm_seconds = 0.0
     _bfm_wall_seconds = 0.0
     _normalize_seconds = 0.0
+    _db_preflight_seconds = 0.0
     _persist_seconds = 0.0
     _bfm_calls = 0
+    _db_dialect = "not_persisted"
     search = request.to_search_request()
     settings = get_settings(request.environment)
+
+    _quote_log(
+        _operation_id,
+        f"start env={settings.sabre_env.upper()} "
+        f"persist={'yes' if request.persist else 'no'}",
+    )
 
     # A persisted quote is only useful if it can actually be stored.
     # Preflight the database BEFORE making any Sabre/BFM network call.
     repository = None
     if request.persist:
-        repository = get_quote_repository()
-        repository.ping()
+        _db_preflight_started = perf_counter()
+        try:
+            repository = get_quote_repository()
+            repository.ping()
+            _db_dialect = repository.dialect_name
+        except Exception:
+            _db_preflight_seconds = (
+                perf_counter() - _db_preflight_started
+            )
+            _quote_log(
+                _operation_id,
+                f"DB preflight failed after "
+                f"{_db_preflight_seconds:.3f}s",
+            )
+            raise
+
+        _db_preflight_seconds = perf_counter() - _db_preflight_started
+        _quote_log(
+            _operation_id,
+            f"DB {_db_dialect} preflight: "
+            f"{_db_preflight_seconds:.3f}s",
+        )
 
     currencies = resolve_pricing_currencies_for_legs(
         search.effective_legs(), search.currency
@@ -236,10 +276,11 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
             )
             _parallel_elapsed = perf_counter() - _parallel_started
             _bfm_wall_seconds += _parallel_elapsed
-            print(
-                f"[QUOTE] BFM cabin batch currency={currency}: "
+            _quote_log(
+                _operation_id,
+                f"BFM cabin batch currency={currency}: "
                 f"{_parallel_elapsed:.3f}s wall | "
-                f"{len(cabins)} cabin calls"
+                f"{len(cabins)} cabin calls",
             )
 
             _primary_by_cabin = {
@@ -252,10 +293,11 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
                 raw, _bfm_primary_elapsed = _primary_by_cabin[cabin]
                 _bfm_seconds += _bfm_primary_elapsed
                 _bfm_calls += 1
-                print(
-                    f"[QUOTE] BFM #{_bfm_calls} "
+                _quote_log(
+                    _operation_id,
+                    f"BFM #{_bfm_calls} "
                     f"currency={currency} cabin={cabin.value}: "
-                    f"{_bfm_primary_elapsed:.3f}s service"
+                    f"{_bfm_primary_elapsed:.3f}s service",
                 )
 
                 diagnostics = extract_bfm_diagnostics(raw)
@@ -264,9 +306,10 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
                 normalized_primary = normalize_bfm_response(raw)
                 _normalize_elapsed = perf_counter() - _normalize_started
                 _normalize_seconds += _normalize_elapsed
-                print(
-                    f"[QUOTE] normalize #{_bfm_calls}: "
-                    f"{_normalize_elapsed:.3f}s"
+                _quote_log(
+                    _operation_id,
+                    f"normalize #{_bfm_calls}: "
+                    f"{_normalize_elapsed:.3f}s",
                 )
                 cabin_normalized = _filter_itineraries_to_cabin(
                     normalized_primary,
@@ -316,10 +359,11 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
                     _bfm_wall_seconds += _bfm_fallback_elapsed
                     _bfm_seconds += _bfm_fallback_elapsed
                     _bfm_calls += 1
-                    print(
-                        f"[QUOTE] BFM fallback #{_bfm_calls} "
+                    _quote_log(
+                        _operation_id,
+                        f"BFM fallback #{_bfm_calls} "
                         f"currency={currency} cabin={cabin.value}: "
-                        f"{_bfm_fallback_elapsed:.3f}s"
+                        f"{_bfm_fallback_elapsed:.3f}s",
                     )
 
                     broad_diagnostics = extract_bfm_diagnostics(broad_raw)
@@ -328,9 +372,10 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
                     broad_normalized = normalize_bfm_response(broad_raw)
                     _normalize_elapsed = perf_counter() - _normalize_started
                     _normalize_seconds += _normalize_elapsed
-                    print(
-                        f"[QUOTE] normalize fallback #{_bfm_calls}: "
-                        f"{_normalize_elapsed:.3f}s"
+                    _quote_log(
+                        _operation_id,
+                        f"normalize fallback #{_bfm_calls}: "
+                        f"{_normalize_elapsed:.3f}s",
                     )
                     broad_cabin_normalized = _filter_itineraries_to_cabin(
                         broad_normalized,
@@ -508,20 +553,29 @@ async def search_quote(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse
         quote_id = repository.create(request=request, response=response)
         _persist_seconds = perf_counter() - _persist_started
         response.quote_id = quote_id
-        print(f"[QUOTE] SQLite create: {_persist_seconds:.3f}s")
+        _quote_log(
+            _operation_id,
+            f"DB {_db_dialect} write: {_persist_seconds:.3f}s",
+        )
 
     _quote_total = perf_counter() - _quote_started
     _other_seconds = max(
         0.0,
-        _quote_total - _bfm_wall_seconds - _normalize_seconds - _persist_seconds,
+        _quote_total
+        - _bfm_wall_seconds
+        - _normalize_seconds
+        - _db_preflight_seconds
+        - _persist_seconds,
     )
-    print(
-        f"[QUOTE] search total: {_quote_total:.3f}s | "
+    _quote_log(
+        _operation_id,
+        f"complete total={_quote_total:.3f}s | "
         f"BFM wall={_bfm_wall_seconds:.3f}s | "
         f"BFM service={_bfm_seconds:.3f}s ({_bfm_calls} calls) | "
         f"normalize={_normalize_seconds:.3f}s | "
-        f"SQLite={_persist_seconds:.3f}s | "
-        f"other={_other_seconds:.3f}s"
+        f"DB preflight={_db_preflight_seconds:.3f}s | "
+        f"DB write={_persist_seconds:.3f}s ({_db_dialect}) | "
+        f"other={_other_seconds:.3f}s",
     )
 
     return response
