@@ -15,6 +15,54 @@ def _money(detail: FareRuleConditionDetail | None) -> str | None:
     return f"{detail.currency} {detail.amount:.2f}"
 
 
+def _period_condition_text(
+    label: str,
+    detail: FareRuleConditionDetail,
+) -> str:
+    money = _money(detail)
+
+    if detail.status == "not_allowed":
+        return f"{label}: no permitido"
+    if money:
+        return f"{label}: penalidad {money}"
+    if detail.status == "with_fee":
+        return (
+            f"{label}: con penalidad, "
+            "sin importe monetario identificado"
+        )
+    if detail.status == "allowed":
+        return f"{label}: permitido"
+    return f"{label}: condición no determinada"
+
+
+def _different_period_conditions(
+    before: FareRuleConditionDetail | None,
+    after: FareRuleConditionDetail | None,
+) -> list[str]:
+    """Describe before/after separately only when their conditions differ."""
+    if before is None or after is None:
+        return []
+
+    before_signature = (
+        before.status,
+        _money(before),
+        before.fare_difference_applies,
+    )
+    after_signature = (
+        after.status,
+        _money(after),
+        after.fare_difference_applies,
+    )
+
+    if before_signature == after_signature:
+        return []
+
+    return [
+        _period_condition_text("antes de la salida", before),
+        _period_condition_text("después de la salida", after),
+    ]
+
+
 def _changes_text(audit: FareRuleFareAudit) -> str:
     details = audit.structured_details
     if not details:
@@ -48,7 +96,14 @@ def _changes_text(audit: FareRuleFareAudit) -> str:
         elif after:
             parts[0] += " después de la salida"
 
-        if amounts:
+        period_conditions = _different_period_conditions(
+            before,
+            after,
+        )
+
+        if period_conditions:
+            parts.extend(period_conditions)
+        elif amounts:
             if len(amounts) == 1:
                 parts.append(
                     f"penalidad identificada: {next(iter(amounts))}"
@@ -111,7 +166,14 @@ def _refunds_text(audit: FareRuleFareAudit) -> str:
         elif after:
             parts[0] += " después de la salida"
 
-        if amounts:
+        period_conditions = _different_period_conditions(
+            before,
+            after,
+        )
+
+        if period_conditions:
+            parts.extend(period_conditions)
+        elif amounts:
             if len(amounts) == 1:
                 parts.append(
                     f"penalidad identificada: {next(iter(amounts))}"
