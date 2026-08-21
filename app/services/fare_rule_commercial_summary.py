@@ -63,10 +63,43 @@ def _different_period_conditions(
     ]
 
 
+def _fallback_rule_text(datum, *, kind: str) -> str:
+    status = str(getattr(datum, "status", "") or "").lower()
+
+    if kind == "changes":
+        if status in {"included", "allowed"}:
+            return (
+                "Cambios permitidos según la tarifa; "
+                "confirmar diferencia tarifaria aplicable."
+            )
+        if status == "with_fee":
+            return (
+                "Cambios permitidos con cargo; "
+                "penalidad e importe a confirmar."
+            )
+        if status == "not_allowed":
+            return "Cambios no permitidos."
+        return "Cambios: confirmar condiciones tarifarias."
+
+    if kind == "refunds":
+        if status in {"included", "allowed"}:
+            return "Devolución permitida según la tarifa."
+        if status == "with_fee":
+            return (
+                "Devolución permitida con cargo; "
+                "penalidad e importe a confirmar."
+            )
+        if status == "not_allowed":
+            return "Devolución no permitida."
+        return "Devoluciones: confirmar condiciones tarifarias."
+
+    raise ValueError(f"Tipo de regla no soportado: {kind}")
+
+
 def _changes_text(audit: FareRuleFareAudit) -> str:
     details = audit.structured_details
     if not details:
-        return audit.changes.text
+        return _fallback_rule_text(audit.changes, kind="changes")
 
     before = details.changes_before_departure
     after = details.changes_after_departure
@@ -130,13 +163,13 @@ def _changes_text(audit: FareRuleFareAudit) -> str:
 
         return "; ".join(parts) + "."
 
-    return audit.changes.text
+    return _fallback_rule_text(audit.changes, kind="changes")
 
 
 def _refunds_text(audit: FareRuleFareAudit) -> str:
     details = audit.structured_details
     if not details:
-        return audit.refunds.text
+        return _fallback_rule_text(audit.refunds, kind="refunds")
 
     before = details.cancellation_before_departure
     after = details.cancellation_after_departure
@@ -193,7 +226,7 @@ def _refunds_text(audit: FareRuleFareAudit) -> str:
 
         return "; ".join(parts) + "."
 
-    return audit.refunds.text
+    return _fallback_rule_text(audit.refunds, kind="refunds")
 
 
 def _no_show_text(audit: FareRuleFareAudit) -> str | None:
