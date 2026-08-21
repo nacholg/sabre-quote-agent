@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 
 from typing import Any
 
@@ -16,6 +17,23 @@ CABIN_CODES = {
     Cabin.FIRST: "F",
 }
 
+
+
+_BFM_REQUEST_TYPES = {"50ITINS", "100ITINS", "200ITINS"}
+
+
+def _bfm_request_type() -> str:
+    """Return configured Sabre BFM itinerary tier."""
+    value = os.getenv("SABRE_BFM_REQUEST_TYPE", "50ITINS").strip().upper()
+
+    if value not in _BFM_REQUEST_TYPES:
+        allowed = ", ".join(sorted(_BFM_REQUEST_TYPES))
+        raise ValueError(
+            f"SABRE_BFM_REQUEST_TYPE inválido: {value!r}. "
+            f"Valores permitidos: {allowed}"
+        )
+
+    return value
 
 class _Location(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -99,7 +117,7 @@ def build_bfm_request(
         "OriginDestinationInformation": origin_destinations,
         "TravelPreferences": travel_preferences,
         "TravelerInfoSummary": traveler_summary,
-        "TPA_Extensions": {"IntelliSellTransaction": {"RequestType": {"Name": "50ITINS"}}},
+        "TPA_Extensions": {"IntelliSellTransaction": {"RequestType": {"Name": _bfm_request_type()}}},
     }
 
     if search.request_profile == RequestProfile.STANDARD:
