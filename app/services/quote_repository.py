@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import create_engine, delete, insert, inspect, select, update
+from sqlalchemy import create_engine, delete, insert, inspect, or_, select, update
 from sqlalchemy.engine import Engine, make_url
 
 from app.db.database import database_url as configured_database_url
@@ -542,16 +542,50 @@ class QuoteRepository:
     def list(
         self,
         limit: int = 20,
+        *,
+        search: str | None = None,
     ) -> list[StoredQuoteSummary]:
+        statement = select(QUOTE_TABLE)
+
+        # Portable SQLite/PostgreSQL search. Every whitespace-separated token
+        # must match at least one searchable field. search_request_json is TEXT,
+        # so route/date terms remain searchable without backend-specific JSON SQL.
+        tokens = [
+            token
+            for token in (search or "").strip().split()
+            if token
+        ]
+        searchable_columns = (
+            QUOTE_TABLE.c.quote_id,
+            QUOTE_TABLE.c.client_name,
+            QUOTE_TABLE.c.client_reference,
+            QUOTE_TABLE.c.status,
+            QUOTE_TABLE.c.source,
+            QUOTE_TABLE.c.agent_text,
+            QUOTE_TABLE.c.notes,
+            QUOTE_TABLE.c.search_request_json,
+        )
+
+        for token in tokens:
+            pattern = f"%{token}%"
+            statement = statement.where(
+                or_(
+                    *[
+                        column.ilike(pattern)
+                        for column in searchable_columns
+                    ]
+                )
+            )
+
+        statement = (
+            statement
+            .order_by(QUOTE_TABLE.c.created_at.desc())
+            .limit(limit)
+        )
+
         with self.engine.connect() as connection:
             rows = (
-                connection.execute(
-                    select(QUOTE_TABLE)
-                    .order_by(
-                        QUOTE_TABLE.c.created_at.desc()
-                    )
-                    .limit(limit)
-                )
+                connection.execute(statement)
                 .mappings()
                 .all()
             )

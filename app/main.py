@@ -65,9 +65,14 @@ async def agent_quote_endpoint(request: AgentQuoteRequest) -> AgentQuoteResponse
 
 
 @app.get("/quotes", response_model=list[StoredQuoteSummary])
-async def list_quotes(limit: int = 20) -> list[StoredQuoteSummary]:
-    limit = min(100, max(1, limit))
-    return get_quote_repository().list(limit=limit)
+async def list_quotes(
+    limit: int = Query(default=50, ge=1, le=100),
+    q: str | None = Query(default=None, max_length=160),
+) -> list[StoredQuoteSummary]:
+    return get_quote_repository().list(
+        limit=limit,
+        search=q,
+    )
 
 
 @app.get("/quotes/{quote_id}", response_model=StoredQuoteRecord)

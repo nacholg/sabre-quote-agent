@@ -159,7 +159,7 @@
         class="history-search"
         type="search"
         placeholder="Buscar Q-id, ruta, cliente, referencia…"
-        oninput="renderHistory()"
+        oninput="scheduleHistorySearch()"
         autocomplete="off"
       >
       <div id="historyCount" class="history-count"></div>
@@ -241,6 +241,8 @@ let currentQuote = null;
 let currentCommercialQuote = null;
 let currentQuoteId = null;
 let historyRows = [];
+let historySearchTimer = null;
+let historyRequestSerial = 0;
 const artifactsByQuote = {};
 let artifactSequence = 0;
 
@@ -906,7 +908,12 @@ ${fareRuleCommercialText(f, "no_show") ? `<div class="rule high">No-show: ${esc(
 }
 
 function historySearchValue(){
-  return (document.getElementById("historySearch")?.value||"").trim().toLowerCase();
+  return (document.getElementById("historySearch")?.value||"").trim();
+}
+
+function scheduleHistorySearch(){
+  if(historySearchTimer)window.clearTimeout(historySearchTimer);
+  historySearchTimer=window.setTimeout(()=>loadHistory(),250);
 }
 
 function renderHistory(){
@@ -915,14 +922,12 @@ function renderHistory(){
   if(!el)return;
 
   const needle=historySearchValue();
-  const rows=needle
-    ? historyRows.filter(q=>JSON.stringify(q).toLowerCase().includes(needle))
-    : historyRows;
+  const rows=historyRows;
 
   if(countEl){
     countEl.textContent=needle
-      ? `${rows.length} de ${historyRows.length} cotizaciones`
-      : `${historyRows.length} cotizaciones cargadas`;
+      ? `${rows.length} coincidencia(s) · búsqueda en servidor`
+      : `${rows.length} cotizaciones recientes`;
   }
 
   if(!rows.length){
@@ -944,14 +949,21 @@ function renderHistory(){
 }
 
 async function loadHistory(){
+  const serial=++historyRequestSerial;
+  const needle=historySearchValue();
+  const params=new URLSearchParams({limit:"100"});
+  if(needle)params.set("q",needle);
+
+  const countEl=document.getElementById("historyCount");
+  if(countEl)countEl.textContent=needle?"Buscando…":"Cargando…";
+
   try{
-    try{
-      historyRows=await api("/quotes?limit=200");
-    }catch(firstError){
-      historyRows=await api("/quotes?limit=100");
-    }
+    const rows=await api(`/quotes?${params.toString()}`);
+    if(serial!==historyRequestSerial)return;
+    historyRows=rows;
     renderHistory();
   }catch(e){
+    if(serial!==historyRequestSerial)return;
     document.getElementById("history").textContent=e.message;
   }
 }
