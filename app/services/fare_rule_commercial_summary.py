@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from app.models.api import (
     FareRuleCommercialSummary,
     FareRuleConditionDetail,
@@ -13,10 +15,91 @@ def _money(detail: FareRuleConditionDetail | None) -> str | None:
     return f"{detail.currency} {detail.amount:.2f}"
 
 
+def _period_condition_text(
+    label: str,
+    detail: FareRuleConditionDetail,
+) -> str:
+    money = _money(detail)
+
+    if detail.status == "not_allowed":
+        return f"{label}: no permitido"
+    if money:
+        return f"{label}: penalidad {money}"
+    if detail.status == "with_fee":
+        return (
+            f"{label}: con penalidad, "
+            "sin importe monetario identificado"
+        )
+    if detail.status == "allowed":
+        return f"{label}: permitido"
+    return f"{label}: condición no determinada"
+
+
+def _different_period_conditions(
+    before: FareRuleConditionDetail | None,
+    after: FareRuleConditionDetail | None,
+) -> list[str]:
+    """Describe before/after separately only when their conditions differ."""
+    if before is None or after is None:
+        return []
+
+    before_signature = (
+        before.status,
+        _money(before),
+        before.fare_difference_applies,
+    )
+    after_signature = (
+        after.status,
+        _money(after),
+        after.fare_difference_applies,
+    )
+
+    if before_signature == after_signature:
+        return []
+
+    return [
+        _period_condition_text("antes de la salida", before),
+        _period_condition_text("después de la salida", after),
+    ]
+
+
+def _fallback_rule_text(datum, *, kind: str) -> str:
+    status = str(getattr(datum, "status", "") or "").lower()
+
+    if kind == "changes":
+        if status in {"included", "allowed"}:
+            return (
+                "Cambios permitidos según la tarifa; "
+                "confirmar diferencia tarifaria aplicable."
+            )
+        if status == "with_fee":
+            return (
+                "Cambios permitidos con cargo; "
+                "penalidad e importe a confirmar."
+            )
+        if status == "not_allowed":
+            return "Cambios no permitidos."
+        return "Cambios: confirmar condiciones tarifarias."
+
+    if kind == "refunds":
+        if status in {"included", "allowed"}:
+            return "Devolución permitida según la tarifa."
+        if status == "with_fee":
+            return (
+                "Devolución permitida con cargo; "
+                "penalidad e importe a confirmar."
+            )
+        if status == "not_allowed":
+            return "Devolución no permitida."
+        return "Devoluciones: confirmar condiciones tarifarias."
+
+    raise ValueError(f"Tipo de regla no soportado: {kind}")
+
+
 def _changes_text(audit: FareRuleFareAudit) -> str:
     details = audit.structured_details
     if not details:
-        return audit.changes.text
+        return _fallback_rule_text(audit.changes, kind="changes")
 
     before = details.changes_before_departure
     after = details.changes_after_departure
@@ -46,7 +129,14 @@ def _changes_text(audit: FareRuleFareAudit) -> str:
         elif after:
             parts[0] += " después de la salida"
 
-        if amounts:
+        period_conditions = _different_period_conditions(
+            before,
+            after,
+        )
+
+        if period_conditions:
+            parts.extend(period_conditions)
+        elif amounts:
             if len(amounts) == 1:
                 parts.append(
                     f"penalidad identificada: {next(iter(amounts))}"
@@ -73,13 +163,13 @@ def _changes_text(audit: FareRuleFareAudit) -> str:
 
         return "; ".join(parts) + "."
 
-    return audit.changes.text
+    return _fallback_rule_text(audit.changes, kind="changes")
 
 
 def _refunds_text(audit: FareRuleFareAudit) -> str:
     details = audit.structured_details
     if not details:
-        return audit.refunds.text
+        return _fallback_rule_text(audit.refunds, kind="refunds")
 
     before = details.cancellation_before_departure
     after = details.cancellation_after_departure
@@ -109,7 +199,14 @@ def _refunds_text(audit: FareRuleFareAudit) -> str:
         elif after:
             parts[0] += " después de la salida"
 
-        if amounts:
+        period_conditions = _different_period_conditions(
+            before,
+            after,
+        )
+
+        if period_conditions:
+            parts.extend(period_conditions)
+        elif amounts:
             if len(amounts) == 1:
                 parts.append(
                     f"penalidad identificada: {next(iter(amounts))}"
@@ -129,7 +226,7 @@ def _refunds_text(audit: FareRuleFareAudit) -> str:
 
         return "; ".join(parts) + "."
 
-    return audit.refunds.text
+    return _fallback_rule_text(audit.refunds, kind="refunds")
 
 
 def _no_show_text(audit: FareRuleFareAudit) -> str | None:
@@ -154,6 +251,32 @@ def _no_show_text(audit: FareRuleFareAudit) -> str | None:
     return None
 
 
+def _ticketing_text(audit: FareRuleFareAudit) -> str:
+    """Return client-safe ticketing wording without exposing BFM internals."""
+    ticketing = audit.ticketing
+
+    if ticketing.status == "included":
+        text = (ticketing.text or "").strip()
+
+        # Sabre commonly exposes last_ticket_date as ISO. Keep the operational
+        # meaning but present the date in the format normally used by agents.
+        text = re.sub(
+            r"\b(\d{4})-(\d{2})-(\d{2})\b",
+            lambda match: (
+                f"{match.group(3)}/{match.group(2)}/{match.group(1)}"
+            ),
+            text,
+        )
+
+        if text:
+            return text
+
+    return (
+        "Fecha límite de emisión a confirmar; "
+        "tarifa sujeta a disponibilidad hasta la emisión."
+    )
+
+
 def build_fare_rule_commercial_summary(
     audit: FareRuleFareAudit,
 ) -> FareRuleCommercialSummary:
@@ -162,5 +285,5 @@ def build_fare_rule_commercial_summary(
         changes=_changes_text(audit),
         refunds=_refunds_text(audit),
         no_show=_no_show_text(audit),
-        ticketing=audit.ticketing.text,
+        ticketing=_ticketing_text(audit),
     )
