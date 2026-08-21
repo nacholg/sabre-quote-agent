@@ -1,9 +1,75 @@
 from functools import lru_cache
+import os
 from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class SabreEnvironmentMismatchError(RuntimeError):
+    """Requested Sabre environment does not match explicit runtime config."""
+
+
+def _requested_sabre_env(env_name: Literal["prod", "cert"]) -> str:
+    return "CERT" if env_name.lower() == "cert" else "PROD"
+
+
+def _validate_environment_match(
+    settings: "Settings",
+    env_name: Literal["prod", "cert"],
+    *,
+    explicit_source: bool,
+) -> None:
+    if not explicit_source:
+        return
+
+    expected = _requested_sabre_env(env_name)
+    actual = (settings.sabre_env or "").strip().upper()
+
+    if actual not in {"CERT", "PROD"}:
+        raise SabreEnvironmentMismatchError(
+            "SABRE_ENV debe ser CERT o PROD; "
+            f"valor configurado: {actual or '<vacío>'}."
+        )
+
+    if actual != expected:
+        raise SabreEnvironmentMismatchError(
+            f"Entorno solicitado {expected}, pero este runtime "
+            f"está configurado para {actual}. "
+            "No se realizará ninguna llamada a Sabre."
+        )
+
+
+def runtime_environment_status() -> dict[str, object]:
+    """Return non-secret runtime environment metadata for UI/operations."""
+    cert_file = Path(".env.cert").exists()
+    prod_file = Path(".env").exists()
+    process_env = (os.getenv("SABRE_ENV") or "").strip().upper()
+
+    if not cert_file and not prod_file and process_env in {"CERT", "PROD"}:
+        environment = "cert" if process_env == "CERT" else "prod"
+        return {
+            "locked": True,
+            "environment": environment,
+            "available_environments": [environment],
+            "source": "process",
+            "read_only": True,
+        }
+
+    available: list[str] = []
+    if cert_file:
+        available.append("cert")
+    if prod_file:
+        available.append("prod")
+
+    return {
+        "locked": False,
+        "environment": None,
+        "available_environments": available or ["cert", "prod"],
+        "source": "dotenv" if available else "defaults",
+        "read_only": True,
+    }
 
 
 class Settings(BaseSettings):
@@ -104,6 +170,18 @@ def get_settings(env_name: Literal["prod", "cert"] = "prod") -> Settings:
     env_file = Path(".env.cert") if env_name.lower() == "cert" else Path(".env")
 
     if env_file.exists():
-        return Settings(_env_file=env_file)  # type: ignore[call-arg]
+        settings = Settings(_env_file=env_file)  # type: ignore[call-arg]
+        _validate_environment_match(
+            settings,
+            env_name,
+            explicit_source=True,
+        )
+        return settings
 
-    return Settings(_env_file=None)  # type: ignore[call-arg]
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    _validate_environment_match(
+        settings,
+        env_name,
+        explicit_source=bool(os.getenv("SABRE_ENV")),
+    )
+    return settings

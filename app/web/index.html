@@ -157,7 +157,7 @@
 <body>
 <header>
   <h1>Sabre Quote Agent</h1>
-  <div class="badge">MVP 0.17 · Web UI</div>
+  <div id="runtimeBadge" class="badge">Read-only · cargando entorno…</div>
 </header>
 
 <div class="layout">
@@ -355,6 +355,33 @@ async function api(url, opts={}){
 
 function setStatus(msg,type="ok"){
   document.getElementById("searchStatus").innerHTML = `<div class="status ${type}">${esc(msg)}</div>`;
+}
+
+async function loadRuntimeEnvironment(){
+  const envSelect=document.getElementById("environment");
+  const badge=document.getElementById("runtimeBadge");
+
+  try{
+    const runtime=await api("/runtime");
+    const available=runtime.available_environments||[];
+
+    [...envSelect.options].forEach(option=>{
+      option.disabled=available.length>0 && !available.includes(option.value);
+    });
+
+    if(runtime.locked && runtime.environment){
+      envSelect.value=runtime.environment;
+      envSelect.disabled=true;
+      envSelect.title=`Runtime bloqueado a ${String(runtime.environment).toUpperCase()}`;
+      badge.textContent=`Read-only · ${String(runtime.environment).toUpperCase()}`;
+    }else{
+      envSelect.disabled=false;
+      badge.textContent="Read-only · entorno seleccionable";
+    }
+  }catch(e){
+    badge.textContent="Read-only · entorno no verificado";
+    setStatus(`No se pudo verificar el entorno operativo: ${e.message}`,"warn");
+  }
 }
 
 async function runQuote(){
@@ -1085,6 +1112,7 @@ async function openQuote(id){
   }catch(e){alert(e.message);}
 }
 
+loadRuntimeEnvironment();
 loadHistory();
 
 function fareRuleCommercialText(fare, key, fallbackDatum = null) {

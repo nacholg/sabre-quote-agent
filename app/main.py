@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
+from app.config import SabreEnvironmentMismatchError, runtime_environment_status
 from app.models.api import AgentQuoteRequest, AgentQuoteResponse, FareRuleAuditResponse, QuoteRenderResponse, QuoteSearchAPIRequest, QuoteSearchAPIResponse, QuoteSelectionRequest, QuoteSelectionResponse, StoredQuoteRecord, StoredQuoteSummary, QuoteWorkflowUpdate, QuoteWorkflowResponse, QuoteRefreshResponse
 from app.models.commercial_quote import CommercialQuote
 from app.models.api import QuoteArtifactCreate, QuoteArtifactRecord, QuoteVersionHistory
@@ -44,10 +45,17 @@ async def health() -> dict[str, str]:
     return {"status": "ok", "service": "sabre-quote-agent", "version": "0.21.1"}
 
 
+@app.get("/runtime", summary="Runtime operativo sin secretos")
+async def runtime_status() -> dict[str, object]:
+    return runtime_environment_status()
+
+
 @app.post("/quotes/search", response_model=QuoteSearchAPIResponse)
 async def quotes_search(request: QuoteSearchAPIRequest) -> QuoteSearchAPIResponse:
     try:
         return await search_quote(request)
+    except SabreEnvironmentMismatchError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except SabreError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -59,6 +67,8 @@ async def agent_quote_endpoint(request: AgentQuoteRequest) -> AgentQuoteResponse
         return await agent_quote(request)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except SabreEnvironmentMismatchError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except SabreError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -372,6 +382,8 @@ async def refresh_quote(quote_id: str) -> QuoteRefreshResponse:
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Cotización no encontrada: {quote_id}")
     except QuoteVersionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except SabreEnvironmentMismatchError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except SabreError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
