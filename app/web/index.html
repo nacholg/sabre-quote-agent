@@ -262,6 +262,30 @@
         <div id="quoteId" class="chip"></div>
       </div>
       <div id="versionBar" class="version-bar hidden"></div>
+
+      <div id="modifyComposer" style="margin-top:14px;border:1px solid var(--line);border-radius:12px;padding:14px;background:#fafcff">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px">
+          <strong>Continuar esta cotización</strong>
+          <span class="muted">El cambio crea una nueva versión</span>
+        </div>
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:10px;align-items:stretch">
+          <textarea
+            id="modifyPrompt"
+            data-current-only="true"
+            style="min-height:70px"
+            placeholder="Ej.: cotizar para 2 personas · probalo en economy · solo directos"
+          ></textarea>
+          <button
+            id="modifyBtn"
+            class="primary"
+            data-current-only="true"
+            onclick="modifyCurrentQuote()"
+          >Aplicar cambio</button>
+        </div>
+        <div id="modifyStatus"></div>
+        <div id="modifyChanges" class="hidden"></div>
+      </div>
+
       <div id="timeMatchStatus" class="hidden"></div>
       <div class="interpret" style="margin-top:14px">
         <input id="clientName" placeholder="Cliente" style="border:1px solid var(--line);border-radius:10px;padding:10px">
@@ -441,6 +465,83 @@ async function loadRuntimeEnvironment(){
   }catch(e){
     badge.textContent="Read-only · entorno no verificado";
     setStatus(`No se pudo verificar el entorno operativo: ${e.message}`,"warn");
+  }
+}
+
+function setModifyStatus(msg,type="ok"){
+  const el=document.getElementById("modifyStatus");
+  if(!el)return;
+  el.innerHTML=msg ? `<div class="status ${type}">${esc(msg)}</div>` : "";
+}
+
+function renderModificationChanges(changes){
+  const el=document.getElementById("modifyChanges");
+  if(!el)return;
+
+  if(!changes || !changes.length){
+    el.classList.add("hidden");
+    el.innerHTML="";
+    return;
+  }
+
+  el.innerHTML=
+    `<div class="interpret-heading"><strong>Cambios aplicados</strong></div>`+
+    `<div class="interpret">`+
+    changes.map(item=>{
+      const before=item.before===null || item.before===undefined ? "—" : item.before;
+      const after=item.after===null || item.after===undefined ? "—" : item.after;
+      return `<div class="chip"><strong>${esc(item.label||item.field)}</strong><br>`+
+        `${esc(String(before))} → ${esc(String(after))}</div>`;
+    }).join("")+
+    `</div>`;
+
+  el.classList.remove("hidden");
+}
+
+async function modifyCurrentQuote(){
+  const text=document.getElementById("modifyPrompt")?.value.trim() || "";
+  if(!currentQuoteId){
+    setModifyStatus("Abrí o generá una cotización antes de modificarla.","warn");
+    return;
+  }
+  if(!text){
+    setModifyStatus("Escribí el cambio que querés aplicar.","warn");
+    return;
+  }
+
+  const btn=document.getElementById("modifyBtn");
+  btn.disabled=true;
+  setModifyStatus("Interpretando cambio y recotizando…","warn");
+  renderModificationChanges([]);
+
+  try{
+    const baseQuoteId=currentQuoteId;
+    const data=await api(`/quotes/${baseQuoteId}/modify`,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        text,
+        execute:true
+      })
+    });
+
+    if(!data.new_quote_id){
+      throw new Error("La modificación no generó una nueva versión.");
+    }
+
+    await openQuote(data.new_quote_id);
+    renderModificationChanges(data.changes||[]);
+    document.getElementById("modifyPrompt").value="";
+    setModifyStatus(
+      `Nueva versión creada desde ${baseQuoteId}: ${data.new_quote_id}`,
+      "ok"
+    );
+    await loadHistory();
+  }catch(e){
+    setModifyStatus(e.message||String(e),"err");
+  }finally{
+    btn.disabled=false;
+    applyVersionMutability();
   }
 }
 
