@@ -388,3 +388,190 @@ async def test_missing_child_age_logs_clarification_not_llm(monkeypatch, capsys)
     output = capsys.readouterr().out
     assert "clarification required; llm fallback skipped" in output
     assert "[AGENT LLM]" not in output
+
+
+def test_parser_failure_policy_distinguishes_clarification_from_recovery():
+    import app.services.hybrid_agent_interpreter as hybrid
+    from app.services.agent_parser import AgentClarificationRequired
+
+    assert hybrid._parser_failure_policy(
+        AgentClarificationRequired("missing factual input")
+    ) == "clarification"
+
+    assert hybrid._parser_failure_policy(
+        ValueError("natural language parse failed")
+    ) == "llm_recoverable"
+
+
+@pytest.mark.asyncio
+async def test_missing_year_warning_from_llm_becomes_assumption(monkeypatch):
+    import app.services.hybrid_agent_interpreter as hybrid
+
+    monkeypatch.setattr(
+        hybrid,
+        "llm_fallback_enabled",
+        lambda environment: True,
+    )
+
+    real_parse = hybrid.parse_agent_quote
+    calls = 0
+
+    def controlled_parse(request, *, today=None):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise ValueError("parser failure")
+        return real_parse(request, today=today)
+
+    monkeypatch.setattr(
+        hybrid,
+        "parse_agent_quote",
+        controlled_parse,
+    )
+
+    async def fake_normalize(*args, **kwargs):
+        return LLMPromptNormalization(
+            canonical_prompt=(
+                "BUE-MEX 30OCT regreso 01NOV "
+                "1 ADT BUSINESS"
+            ),
+            assumptions=[],
+            warnings=[
+                "No se indicó el año de las fechas."
+            ],
+        )
+
+    monkeypatch.setattr(
+        hybrid,
+        "normalize_prompt_with_llm",
+        fake_normalize,
+    )
+
+    parsed = await interpret_agent_quote(
+        AgentQuoteRequest(
+            text="texto conversacional",
+            environment="cert",
+            execute=False,
+        ),
+        today=TODAY,
+    )
+
+    assert "Año inferido para las fechas: 2026." in parsed.assumptions
+    assert not any("año" in warning.lower() for warning in parsed.warnings)
+
+
+@pytest.mark.asyncio
+async def test_missing_year_warning_from_parser_becomes_assumption(monkeypatch):
+    import app.services.hybrid_agent_interpreter as hybrid
+
+    monkeypatch.setattr(
+        hybrid,
+        "llm_fallback_enabled",
+        lambda environment: True,
+    )
+
+    real_parse = hybrid.parse_agent_quote
+    calls = 0
+
+    def controlled_parse(request, *, today=None):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise ValueError("parser failure")
+
+        parsed = real_parse(request, today=today)
+        parsed.warnings = [
+            *parsed.warnings,
+            "No se especificó el año de las fechas.",
+        ]
+        return parsed
+
+    monkeypatch.setattr(
+        hybrid,
+        "parse_agent_quote",
+        controlled_parse,
+    )
+
+    async def fake_normalize(*args, **kwargs):
+        return LLMPromptNormalization(
+            canonical_prompt=(
+                "BUE-MEX 30OCT regreso 01NOV "
+                "1 ADT BUSINESS"
+            ),
+            assumptions=[],
+            warnings=[],
+        )
+
+    monkeypatch.setattr(
+        hybrid,
+        "normalize_prompt_with_llm",
+        fake_normalize,
+    )
+
+    parsed = await interpret_agent_quote(
+        AgentQuoteRequest(
+            text="texto conversacional",
+            environment="cert",
+            execute=False,
+        ),
+        today=TODAY,
+    )
+
+    assert "Año inferido para las fechas: 2026." in parsed.assumptions
+    assert not any("año" in warning.lower() for warning in parsed.warnings)
+
+
+@pytest.mark.asyncio
+async def test_real_warning_remains_warning_after_message_policy(monkeypatch):
+    import app.services.hybrid_agent_interpreter as hybrid
+
+    monkeypatch.setattr(
+        hybrid,
+        "llm_fallback_enabled",
+        lambda environment: True,
+    )
+
+    real_parse = hybrid.parse_agent_quote
+    calls = 0
+
+    def controlled_parse(request, *, today=None):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise ValueError("parser failure")
+        return real_parse(request, today=today)
+
+    monkeypatch.setattr(
+        hybrid,
+        "parse_agent_quote",
+        controlled_parse,
+    )
+
+    async def fake_normalize(*args, **kwargs):
+        return LLMPromptNormalization(
+            canonical_prompt="EZE-MEX 30OCT 1 ADT BUSINESS",
+            assumptions=[],
+            warnings=[
+                "No se pudo determinar una aerolínea preferida."
+            ],
+        )
+
+    monkeypatch.setattr(
+        hybrid,
+        "normalize_prompt_with_llm",
+        fake_normalize,
+    )
+
+    parsed = await interpret_agent_quote(
+        AgentQuoteRequest(
+            text="texto conversacional",
+            environment="cert",
+            execute=False,
+        ),
+        today=TODAY,
+    )
+
+    assert (
+        "No se pudo determinar una aerolínea preferida."
+        in parsed.warnings
+    )

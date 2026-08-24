@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from datetime import date
+from typing import Literal
 
 from app.models.api import AgentInterpretation, AgentQuoteRequest
 from app.services.agent_parser import (
@@ -35,6 +36,33 @@ _EXPLICIT_ONE_WAY = re.compile(
 )
 
 
+_YEAR_OMISSION_WARNING = re.compile(
+    r"(?:"
+    r"no\s+se\s+indico|"
+    r"no\s+se\s+especifico|"
+    r"sin\s+indicar|"
+    r"sin\s+especificar|"
+    r"falta|"
+    r"faltante|"
+    r"omitido|"
+    r"omitida"
+    r").{0,36}\bano\b"
+    r"|"
+    r"\bano\b.{0,36}(?:"
+    r"no\s+indicado|"
+    r"no\s+especificado|"
+    r"faltante|"
+    r"omitido"
+    r")"
+)
+
+
+ParserFailurePolicy = Literal[
+    "clarification",
+    "llm_recoverable",
+]
+
+
 def _fold(value: str) -> str:
     value = unicodedata.normalize("NFD", value.lower())
     return "".join(
@@ -62,6 +90,92 @@ def _semantic_review_reason(
         return "return_intent_without_return_date"
 
     return None
+
+
+def _parser_failure_policy(
+    error: ValueError,
+) -> ParserFailurePolicy:
+    if isinstance(error, AgentClarificationRequired):
+        return "clarification"
+    return "llm_recoverable"
+
+
+def _dedupe_messages(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+
+    for value in values:
+        clean = str(value).strip()
+        if not clean:
+            continue
+        key = _fold(clean)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(clean)
+
+    return result
+
+
+def _interpreted_years(
+    interpretation: AgentInterpretation,
+) -> list[int]:
+    request = interpretation.search_request
+    years: set[int] = set()
+
+    for leg in request.legs:
+        years.add(leg.departure_date.year)
+
+    if request.departure_date is not None:
+        years.add(request.departure_date.year)
+    if request.return_date is not None:
+        years.add(request.return_date.year)
+
+    return sorted(years)
+
+
+def _merge_llm_messages(
+    normalized: LLMPromptNormalization,
+    interpretation: AgentInterpretation,
+) -> tuple[list[str], list[str]]:
+    assumptions = list(normalized.assumptions)
+    warnings: list[str] = []
+
+    years = _interpreted_years(interpretation)
+    inferred_year_message: str | None = None
+
+    if len(years) == 1:
+        inferred_year_message = (
+            f"Año inferido para las fechas: {years[0]}."
+        )
+    elif len(years) > 1:
+        inferred_year_message = (
+            "Años inferidos para las fechas: "
+            + ", ".join(str(year) for year in years)
+            + "."
+        )
+
+    # Apply the same message policy to both sources:
+    # the LLM normalizer and the deterministic reparse.
+    for warning in [
+        *normalized.warnings,
+        *interpretation.warnings,
+    ]:
+        folded = _fold(warning)
+        if (
+            inferred_year_message
+            and _YEAR_OMISSION_WARNING.search(folded)
+        ):
+            assumptions.append(inferred_year_message)
+            continue
+        warnings.append(warning)
+
+    assumptions.extend(interpretation.assumptions)
+
+    return (
+        _dedupe_messages(assumptions),
+        _dedupe_messages(warnings),
+    )
 
 
 def _agent_log(message: str) -> None:
@@ -96,14 +210,13 @@ async def _normalize_and_reparse(
         today=today,
     )
     interpretation.parser = "hybrid-llm-v1"
-    interpretation.assumptions = [
-        *normalized.assumptions,
-        *interpretation.assumptions,
-    ]
-    interpretation.warnings = [
-        *normalized.warnings,
-        *interpretation.warnings,
-    ]
+    (
+        interpretation.assumptions,
+        interpretation.warnings,
+    ) = _merge_llm_messages(
+        normalized,
+        interpretation,
+    )
 
     _agent_log(
         f"llm fallback complete reason={reason} "
@@ -125,12 +238,22 @@ async def interpret_agent_quote(
             request,
             today=effective_today,
         )
-    except AgentClarificationRequired:
-        _agent_log(
-            "clarification required; llm fallback skipped"
-        )
-        raise
     except ValueError as deterministic_error:
+        failure_policy = _parser_failure_policy(
+            deterministic_error
+        )
+
+        if failure_policy == "clarification":
+            _agent_log(
+                "clarification required; llm fallback skipped; "
+                "parser failure policy=clarification"
+            )
+            raise
+
+        _agent_log(
+            "parser failure policy=llm_recoverable"
+        )
+
         if not llm_fallback_enabled(request.environment):
             raise
 
