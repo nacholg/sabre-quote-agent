@@ -151,3 +151,127 @@ async def test_conversational_execution_creates_new_version(
     history = repo.version_history(new.quote_id)
     assert history.total_versions == 2
     assert history.latest_quote_id == new.quote_id
+
+
+@pytest.mark.asyncio
+async def test_conversational_preview_changes_return_date(tmp_path):
+    repo = QuoteRepository(tmp_path / "quotes.db")
+    quote_id = _seed(repo)
+
+    response = await modify_stored_quote(
+        repo,
+        quote_id,
+        QuoteModificationRequest(
+            text="volvé el 3 de noviembre",
+            execute=False,
+        ),
+    )
+
+    assert response.search_request.return_date.isoformat() == "2026-11-03"
+    assert response.search_request.departure_date.isoformat() == "2026-10-30"
+    assert [item.field for item in response.changes] == ["return_date"]
+
+
+@pytest.mark.asyncio
+async def test_conversational_preview_changes_departure_relative(tmp_path):
+    repo = QuoteRepository(tmp_path / "quotes.db")
+    quote_id = _seed(repo)
+
+    response = await modify_stored_quote(
+        repo,
+        quote_id,
+        QuoteModificationRequest(
+            text="salir un día antes",
+            execute=False,
+        ),
+    )
+
+    assert response.search_request.departure_date.isoformat() == "2026-10-29"
+    assert response.search_request.return_date.isoformat() == "2026-11-01"
+
+
+@pytest.mark.asyncio
+async def test_conversational_preview_rejects_ambiguous_roundtrip_date(tmp_path):
+    repo = QuoteRepository(tmp_path / "quotes.db")
+    quote_id = _seed(repo)
+
+    with pytest.raises(ValueError, match="salida o el regreso"):
+        await modify_stored_quote(
+            repo,
+            quote_id,
+            QuoteModificationRequest(
+                text="el 3 de noviembre",
+                execute=False,
+            ),
+        )
+
+
+@pytest.mark.asyncio
+async def test_conversational_preview_replaces_included_carrier(tmp_path):
+    repo = QuoteRepository(tmp_path / "quotes.db")
+    quote_id = _seed(repo)
+
+    response = await modify_stored_quote(
+        repo,
+        quote_id,
+        QuoteModificationRequest(
+            text="solo AM",
+            execute=False,
+        ),
+    )
+
+    assert response.search_request.carriers == ["AM"]
+    assert [item.field for item in response.changes] == ["carriers"]
+
+
+@pytest.mark.asyncio
+async def test_conversational_preview_adds_excluded_carrier(tmp_path):
+    repo = QuoteRepository(tmp_path / "quotes.db")
+    quote_id = _seed(repo)
+
+    response = await modify_stored_quote(
+        repo,
+        quote_id,
+        QuoteModificationRequest(
+            text="excluir AV",
+            execute=False,
+        ),
+    )
+
+    assert response.search_request.excluded_carriers == ["AV"]
+    assert [item.field for item in response.changes] == ["excluded_carriers"]
+
+
+@pytest.mark.asyncio
+async def test_conversational_preview_changes_fare_preference_to_baggage(tmp_path):
+    repo = QuoteRepository(tmp_path / "quotes.db")
+    quote_id = _seed(repo)
+
+    response = await modify_stored_quote(
+        repo,
+        quote_id,
+        QuoteModificationRequest(
+            text="con equipaje",
+            execute=False,
+        ),
+    )
+
+    assert response.search_request.fare_preference.value == "baggage"
+    assert [item.field for item in response.changes] == ["fare_preference"]
+
+
+@pytest.mark.asyncio
+async def test_conversational_preview_changes_fare_preference_to_refundable(tmp_path):
+    repo = QuoteRepository(tmp_path / "quotes.db")
+    quote_id = _seed(repo)
+
+    response = await modify_stored_quote(
+        repo,
+        quote_id,
+        QuoteModificationRequest(
+            text="que sea refundable",
+            execute=False,
+        ),
+    )
+
+    assert response.search_request.fare_preference.value == "refundable"
