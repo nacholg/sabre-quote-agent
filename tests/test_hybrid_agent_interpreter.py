@@ -575,3 +575,162 @@ async def test_real_warning_remains_warning_after_message_policy(monkeypatch):
         "No se pudo determinar una aerolínea preferida."
         in parsed.warnings
     )
+
+
+def test_llm_schema_requires_missing_fields():
+    from app.services.llm_prompt_normalizer import _json_schema_format
+
+    schema = _json_schema_format()["schema"]
+    assert "missing_fields" in schema["properties"]
+    assert "missing_fields" in schema["required"]
+
+
+@pytest.mark.asyncio
+async def test_llm_declared_missing_destination_is_never_invented(monkeypatch):
+    import app.services.hybrid_agent_interpreter as hybrid
+
+    monkeypatch.setattr(
+        hybrid,
+        "llm_fallback_enabled",
+        lambda environment: True,
+    )
+
+    real_parse = hybrid.parse_agent_quote
+    calls = 0
+
+    def controlled_parse(request, *, today=None):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise ValueError(
+                "No pude identificar con certeza origen y destino."
+            )
+        return real_parse(request, today=today)
+
+    monkeypatch.setattr(
+        hybrid,
+        "parse_agent_quote",
+        controlled_parse,
+    )
+
+    async def fake_normalize(*args, **kwargs):
+        return LLMPromptNormalization(
+            canonical_prompt="EZE-MIA 30OCT 1 ADT",
+            assumptions=[],
+            warnings=["El destino no fue indicado."],
+            missing_fields=["destination"],
+        )
+
+    monkeypatch.setattr(
+        hybrid,
+        "normalize_prompt_with_llm",
+        fake_normalize,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="destino",
+    ):
+        await interpret_agent_quote(
+            AgentQuoteRequest(
+                text="Quiero viajar desde Buenos Aires el 30 de octubre.",
+                environment="cert",
+                execute=False,
+            ),
+            today=TODAY,
+        )
+
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_llm_cannot_leave_return_intent_as_one_way(monkeypatch):
+    import app.services.hybrid_agent_interpreter as hybrid
+
+    monkeypatch.setattr(
+        hybrid,
+        "llm_fallback_enabled",
+        lambda environment: True,
+    )
+
+    async def fake_normalize(*args, **kwargs):
+        return LLMPromptNormalization(
+            canonical_prompt="BUE-MEX 30OCT 1 ADT BUSINESS",
+            assumptions=[],
+            warnings=[],
+            missing_fields=[],
+        )
+
+    monkeypatch.setattr(
+        hybrid,
+        "normalize_prompt_with_llm",
+        fake_normalize,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="regreso",
+    ):
+        await interpret_agent_quote(
+            AgentQuoteRequest(
+                text=(
+                    "Necesito ir de Buenos Aires a Ciudad de México "
+                    "el 30 de octubre y volver, en ejecutiva."
+                ),
+                environment="cert",
+                execute=False,
+            ),
+            today=TODAY,
+        )
+
+
+@pytest.mark.asyncio
+async def test_llm_missing_fields_log_is_safe(monkeypatch, capsys):
+    import app.services.hybrid_agent_interpreter as hybrid
+
+    monkeypatch.setattr(
+        hybrid,
+        "llm_fallback_enabled",
+        lambda environment: True,
+    )
+
+    secret_prompt = "PROMPT-SENSIBLE-NO-LOG"
+
+    def fail_first_parse(request, *, today=None):
+        raise ValueError(
+            "No pude identificar con certeza origen y destino."
+        )
+
+    monkeypatch.setattr(
+        hybrid,
+        "parse_agent_quote",
+        fail_first_parse,
+    )
+
+    async def fake_normalize(*args, **kwargs):
+        return LLMPromptNormalization(
+            canonical_prompt="EZE-MIA 30OCT 1 ADT",
+            assumptions=[],
+            warnings=[],
+            missing_fields=["destination"],
+        )
+
+    monkeypatch.setattr(
+        hybrid,
+        "normalize_prompt_with_llm",
+        fake_normalize,
+    )
+
+    with pytest.raises(ValueError):
+        await interpret_agent_quote(
+            AgentQuoteRequest(
+                text=secret_prompt,
+                environment="cert",
+                execute=False,
+            ),
+            today=TODAY,
+        )
+
+    output = capsys.readouterr().out
+    assert "llm clarification required fields=destination" in output
+    assert secret_prompt not in output

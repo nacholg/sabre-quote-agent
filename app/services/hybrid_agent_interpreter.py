@@ -178,6 +178,65 @@ def _merge_llm_messages(
     )
 
 
+def _clarification_message(
+    missing_fields: list[str],
+) -> str:
+    labels = {
+        "origin": "el origen",
+        "destination": "el destino",
+        "departure_date": "la fecha de salida",
+        "return_date": "la fecha de regreso",
+        "child_ages": "la edad de cada menor",
+    }
+    readable = [
+        labels.get(field, field)
+        for field in missing_fields
+    ]
+
+    if len(readable) == 1:
+        detail = readable[0]
+    else:
+        detail = ", ".join(readable[:-1]) + " y " + readable[-1]
+
+    return (
+        "Necesito que indiques "
+        f"{detail} para poder cotizar sin asumir datos."
+    )
+
+
+def _validate_llm_result(
+    request: AgentQuoteRequest,
+    normalized: LLMPromptNormalization,
+    interpretation: AgentInterpretation | None = None,
+) -> None:
+    if normalized.missing_fields:
+        fields = sorted(set(normalized.missing_fields))
+        _agent_log(
+            "llm clarification required fields="
+            + ",".join(fields)
+        )
+        raise AgentClarificationRequired(
+            _clarification_message(fields)
+        )
+
+    if interpretation is None:
+        return
+
+    review_reason = _semantic_review_reason(
+        request,
+        interpretation,
+    )
+    if review_reason == "return_intent_without_return_date":
+        _agent_log(
+            "llm result rejected "
+            "reason=return_intent_without_return_date"
+        )
+        raise AgentClarificationRequired(
+            "Detecté intención de regreso, pero todavía necesito "
+            "una fecha o un tramo de vuelta inequívoco para cotizar."
+        )
+
+
 def _agent_log(message: str) -> None:
     print(f"[AGENT] {message}")
 
@@ -201,6 +260,11 @@ async def _normalize_and_reparse(
         )
     )
 
+    _validate_llm_result(
+        request,
+        normalized,
+    )
+
     canonical_request = request.model_copy(
         update={"text": normalized.canonical_prompt}
     )
@@ -208,6 +272,12 @@ async def _normalize_and_reparse(
     interpretation = parse_agent_quote(
         canonical_request,
         today=today,
+    )
+
+    _validate_llm_result(
+        request,
+        normalized,
+        interpretation,
     )
     interpretation.parser = "hybrid-llm-v1"
     (
@@ -269,6 +339,8 @@ async def interpret_agent_quote(
                 "reason=deterministic_validation_error"
             )
             raise deterministic_error
+        except AgentClarificationRequired:
+            raise
         except ValueError as normalized_error:
             raise ValueError(
                 f"{deterministic_error} "
@@ -308,6 +380,8 @@ async def interpret_agent_quote(
             "Detecté intención de regreso, pero la interpretación "
             "asistida no está disponible para resolverla con seguridad."
         ) from exc
+    except AgentClarificationRequired:
+        raise
     except ValueError as normalized_error:
         raise ValueError(
             "Detecté intención de regreso, pero la interpretación "

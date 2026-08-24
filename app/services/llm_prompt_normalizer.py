@@ -16,10 +16,20 @@ class LLMInterpreterUnavailable(RuntimeError):
     """The optional LLM normalization layer is unavailable."""
 
 
+MissingField = Literal[
+    "origin",
+    "destination",
+    "departure_date",
+    "return_date",
+    "child_ages",
+]
+
+
 class LLMPromptNormalization(BaseModel):
     canonical_prompt: str = Field(min_length=3, max_length=3000)
     assumptions: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    missing_fields: list[MissingField] = Field(default_factory=list)
 
 
 class LLMInterpreterSettings(BaseSettings):
@@ -73,11 +83,25 @@ def _json_schema_format() -> dict:
                     "type": "array",
                     "items": {"type": "string"},
                 },
+                "missing_fields": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "origin",
+                            "destination",
+                            "departure_date",
+                            "return_date",
+                            "child_ages",
+                        ],
+                    },
+                },
             },
             "required": [
                 "canonical_prompt",
                 "assumptions",
                 "warnings",
+                "missing_fields",
             ],
             "additionalProperties": False,
         },
@@ -112,8 +136,16 @@ Accuracy rules:
 - Never add a destination, date, passenger, airline, cabin, currency, baggage
   condition, refundability condition, or stop condition that was not stated or
   unambiguously implied.
-- If required information is missing or ambiguous, leave it missing and add a
-  brief warning.
+- If origin, destination, departure date, an explicitly requested return date,
+  or child ages are missing or ambiguous, do not invent them. Add the matching
+  value to missing_fields.
+- Use return_date in missing_fields only when the user clearly intends a return
+  trip but the return date cannot be determined.
+- Use child_ages in missing_fields when minors are mentioned but their required
+  ages cannot be determined.
+- missing_fields must be empty only when the canonical prompt is safe to send
+  back through the deterministic parser.
+- warnings are for non-blocking uncertainty only.
 - assumptions must contain only short, user-reviewable assumptions.
 """.strip()
 
