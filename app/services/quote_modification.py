@@ -17,9 +17,24 @@ from app.models.quote_request import (
     PassengerKind,
     PassengerSpec,
 )
-from app.services.agent_parser import _carrier_sets, _parse_dates
+from app.services.agent_parser import (
+    _carrier_sets,
+    _parse_compact_dates_in_text,
+    _parse_dates,
+)
+from app.services.llm_prompt_normalizer import (
+    LLMInterpreterUnavailable,
+    llm_fallback_enabled,
+)
+from app.services.llm_quote_modification_normalizer import (
+    normalize_quote_modification_with_llm,
+)
 from app.services.quote_repository import QuoteRepository
 from app.services.quote_service import search_quote
+
+
+class QuoteModificationClarificationRequired(ValueError):
+    """The follow-up lacks factual detail that must not be guessed."""
 
 
 _ADULT_COUNT_PATTERNS = (
@@ -263,19 +278,19 @@ def _date_role(
     )
 
     if has_return_context and has_departure_context:
-        raise ValueError(
+        raise QuoteModificationClarificationRequired(
             "El mensaje mezcla salida y regreso con una sola fecha. "
             "Indicá cada cambio por separado o escribí ambas fechas."
         )
 
     if has_return_context:
         if len(base.legs) > 2:
-            raise ValueError(
+            raise QuoteModificationClarificationRequired(
                 "Para un itinerario multitramos indicá qué tramo querés "
                 "modificar; no voy a asumir cuál es la vuelta."
             )
         if _base_return_date(base) is None:
-            raise ValueError(
+            raise QuoteModificationClarificationRequired(
                 "La cotización actual no tiene regreso. "
                 "Todavía no agrego un tramo nuevo de vuelta "
                 "desde una modificación conversacional."
@@ -286,7 +301,7 @@ def _date_role(
         return "departure_date"
 
     if _base_return_date(base) is not None:
-        raise ValueError(
+        raise QuoteModificationClarificationRequired(
             "Detecté una fecha nueva, pero necesito saber si querés "
             "cambiar la salida o el regreso."
         )
@@ -323,10 +338,24 @@ def _date_delta(
             role: current + timedelta(days=sign * count)
         }
 
+    today = date.today()
     parsed_departure, parsed_return, _ = _parse_dates(
         normalized,
-        date.today(),
+        today,
     )
+
+    # The hybrid normalizer uses compact Sabre-style dates such as
+    # 03NOV2026. The main agent parser already understands these tokens,
+    # so the modification parser should accept the same canonical syntax.
+    if parsed_departure is None:
+        compact_dates = _parse_compact_dates_in_text(
+            normalized,
+            today,
+        )
+        if compact_dates:
+            parsed_departure = compact_dates[0]
+            if len(compact_dates) >= 2:
+                parsed_return = compact_dates[1]
 
     if parsed_departure is None:
         return {}
@@ -408,6 +437,16 @@ def _interpret_delta(
             break
 
     if not delta:
+        if re.search(
+            r"\b(?:algo|opcion|alternativa)?\s*"
+            r"(?:mejor|mejora|conveniente)\b",
+            folded,
+        ):
+            raise QuoteModificationClarificationRequired(
+                "Todavía no pude identificar un cambio concreto en ese mensaje. "
+                "Decime qué querés priorizar: precio, duración, menos escalas "
+                "u otra condición."
+            )
         raise ValueError(
             "Todavía no pude identificar un cambio concreto en ese mensaje. "
             "Podés cambiar pasajeros, cabina, fechas, escalas, aerolíneas "
@@ -644,10 +683,61 @@ async def modify_stored_quote(
         record.search_request
     )
 
-    delta = _interpret_delta(
-        request.text,
-        base_request,
-    )
+    parser = "conversation-delta-v1"
+    assumptions: list[str] = []
+    warnings: list[str] = []
+
+    try:
+        delta = _interpret_delta(
+            request.text,
+            base_request,
+        )
+    except QuoteModificationClarificationRequired:
+        raise
+    except ValueError as deterministic_error:
+        if not llm_fallback_enabled(base_request.environment):
+            raise
+
+        print(
+            "[MOD] llm fallback start "
+            f"env={base_request.environment.upper()}"
+        )
+        try:
+            normalized = await normalize_quote_modification_with_llm(
+                request.text,
+                base=base_request,
+                today=date.today(),
+                environment=base_request.environment,
+            )
+        except LLMInterpreterUnavailable:
+            print("[MOD] llm fallback unavailable")
+            raise deterministic_error
+
+        if normalized.needs_clarification:
+            print("[MOD] llm clarification required")
+            raise QuoteModificationClarificationRequired(
+                normalized.clarification
+                or "Necesito una aclaración antes de modificar la cotización."
+            )
+
+        try:
+            delta = _interpret_delta(
+                normalized.canonical_instruction,
+                base_request,
+            )
+        except QuoteModificationClarificationRequired:
+            raise
+        except ValueError as normalized_error:
+            raise deterministic_error from normalized_error
+
+        parser = "conversation-hybrid-llm-v1"
+        assumptions = list(normalized.assumptions)
+        warnings = list(normalized.warnings)
+        print(
+            "[MOD] llm fallback complete "
+            f"parser={parser}"
+        )
+
     modified_request, changes = _apply_delta(
         base_request,
         delta,
@@ -657,7 +747,9 @@ async def modify_stored_quote(
         return QuoteModificationResponse(
             base_quote_id=quote_id,
             new_quote_id=None,
-            parser="conversation-delta-v1",
+            parser=parser,
+            assumptions=assumptions,
+            warnings=warnings,
             changes=changes,
             search_request=modified_request,
             quote=None,
@@ -667,8 +759,10 @@ async def modify_stored_quote(
     fresh = await search_quote(modified_request)
 
     interpretation = {
-        "parser": "conversation-delta-v1",
+        "parser": parser,
         "base_quote_id": quote_id,
+        "assumptions": assumptions,
+        "warnings": warnings,
         "changes": [
             item.model_dump(mode="json")
             for item in changes
@@ -696,7 +790,9 @@ async def modify_stored_quote(
     return QuoteModificationResponse(
         base_quote_id=quote_id,
         new_quote_id=new_id,
-        parser="conversation-delta-v1",
+        parser=parser,
+        assumptions=assumptions,
+        warnings=warnings,
         changes=changes,
         search_request=modified_request,
         quote=fresh,

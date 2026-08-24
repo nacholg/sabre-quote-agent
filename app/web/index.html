@@ -474,7 +474,7 @@ function setModifyStatus(msg,type="ok"){
   el.innerHTML=msg ? `<div class="status ${type}">${esc(msg)}</div>` : "";
 }
 
-function renderModificationChanges(changes){
+function renderModificationChanges(changes,parser=null,assumptions=[],warnings=[]){
   const el=document.getElementById("modifyChanges");
   if(!el)return;
 
@@ -484,8 +484,21 @@ function renderModificationChanges(changes){
     return;
   }
 
+  const isAI=parser==="conversation-hybrid-llm-v1";
+  const badge=parser
+    ? `<span class="parser-badge ${isAI?"ai":"local"}">${isAI?"IA":"Local"}</span>`
+    : "";
+
+  let messages="";
+  if(assumptions?.length){
+    messages+=`<div class="status warn">${assumptions.map(esc).join("<br>")}</div>`;
+  }
+  if(warnings?.length){
+    messages+=`<div class="status err">${warnings.map(esc).join("<br>")}</div>`;
+  }
+
   el.innerHTML=
-    `<div class="interpret-heading"><strong>Cambios aplicados</strong></div>`+
+    `<div class="interpret-heading"><strong>Cambios aplicados</strong>${badge}</div>`+
     `<div class="interpret">`+
     changes.map(item=>{
       const before=item.before===null || item.before===undefined ? "—" : item.before;
@@ -493,7 +506,7 @@ function renderModificationChanges(changes){
       return `<div class="chip"><strong>${esc(item.label||item.field)}</strong><br>`+
         `${esc(String(before))} → ${esc(String(after))}</div>`;
     }).join("")+
-    `</div>`;
+    `</div>`+messages;
 
   el.classList.remove("hidden");
 }
@@ -530,7 +543,12 @@ async function modifyCurrentQuote(){
     }
 
     await openQuote(data.new_quote_id);
-    renderModificationChanges(data.changes||[]);
+    renderModificationChanges(
+      data.changes||[],
+      data.parser||null,
+      data.assumptions||[],
+      data.warnings||[]
+    );
     document.getElementById("modifyPrompt").value="";
     setModifyStatus(
       `Nueva versión creada desde ${baseQuoteId}: ${data.new_quote_id}`,
@@ -1382,7 +1400,14 @@ async function openQuote(id){
       : "";
     document.getElementById("quoteMeta").textContent=
       `Guardada · ${rec.status} · ${rec.source}${operationRef}`;
-    if(rec.agent_text) document.getElementById("prompt").value=rec.agent_text;
+    const newQuotePrompt=document.getElementById("prompt");
+    if(rec.source==="agent_modify"){
+      // A follow-up belongs to the quote conversation below, not to the
+      // "Nueva cotización" composer.
+      newQuotePrompt.value="";
+    }else if(rec.agent_text){
+      newQuotePrompt.value=rec.agent_text;
+    }
     document.getElementById("clientName").value=rec.client_name||"";
     document.getElementById("clientReference").value=rec.client_reference||"";
     document.getElementById("quoteNotes").value=rec.notes||"";

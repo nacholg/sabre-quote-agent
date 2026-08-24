@@ -275,3 +275,142 @@ async def test_conversational_preview_changes_fare_preference_to_refundable(tmp_
     )
 
     assert response.search_request.fare_preference.value == "refundable"
+
+
+@pytest.mark.asyncio
+async def test_conversational_hybrid_fallback_normalizes_free_language(tmp_path, monkeypatch):
+    import app.services.quote_modification as modification
+    from app.services.llm_quote_modification_normalizer import LLMQuoteModificationNormalization
+
+    repo = QuoteRepository(tmp_path / "quotes.db")
+    quote_id = _seed(repo)
+    monkeypatch.setattr(modification, "llm_fallback_enabled", lambda environment: True)
+
+    async def fake_normalize(*args, **kwargs):
+        return LLMQuoteModificationNormalization(
+            canonical_instruction="volver el 03NOV2026",
+            assumptions=["'un par de días' interpretado como 2 días."],
+            warnings=[],
+            needs_clarification=False,
+            clarification=None,
+        )
+
+    monkeypatch.setattr(modification, "normalize_quote_modification_with_llm", fake_normalize)
+
+    response = await modify_stored_quote(
+        repo,
+        quote_id,
+        QuoteModificationRequest(text="corramos la vuelta un par de días", execute=False),
+    )
+
+    assert response.parser == "conversation-hybrid-llm-v1"
+    assert response.search_request.return_date.isoformat() == "2026-11-03"
+    assert response.assumptions == ["'un par de días' interpretado como 2 días."]
+
+
+@pytest.mark.asyncio
+async def test_conversational_vague_request_requires_clarification_without_llm(tmp_path, monkeypatch):
+    import app.services.quote_modification as modification
+
+    repo = QuoteRepository(tmp_path / "quotes.db")
+    quote_id = _seed(repo)
+    called = False
+
+    async def fake_normalize(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("LLM no debe ejecutarse")
+
+    monkeypatch.setattr(modification, "llm_fallback_enabled", lambda environment: True)
+    monkeypatch.setattr(modification, "normalize_quote_modification_with_llm", fake_normalize)
+
+    with pytest.raises(ValueError, match="cambio concreto"):
+        await modify_stored_quote(
+            repo,
+            quote_id,
+            QuoteModificationRequest(text="buscame algo mejor", execute=False),
+        )
+
+    assert called is False
+
+
+@pytest.mark.asyncio
+async def test_conversational_llm_can_request_clarification(tmp_path, monkeypatch):
+    import app.services.quote_modification as modification
+    from app.services.llm_quote_modification_normalizer import LLMQuoteModificationNormalization
+
+    repo = QuoteRepository(tmp_path / "quotes.db")
+    quote_id = _seed(repo)
+    monkeypatch.setattr(modification, "llm_fallback_enabled", lambda environment: True)
+
+    async def fake_normalize(*args, **kwargs):
+        return LLMQuoteModificationNormalization(
+            canonical_instruction="NO_CHANGE",
+            assumptions=[],
+            warnings=[],
+            needs_clarification=True,
+            clarification="¿Querés priorizar precio, duración o menos escalas?",
+        )
+
+    monkeypatch.setattr(modification, "normalize_quote_modification_with_llm", fake_normalize)
+
+    with pytest.raises(ValueError, match="priorizar"):
+        await modify_stored_quote(
+            repo,
+            quote_id,
+            QuoteModificationRequest(text="haceme una alternativa más conveniente", execute=False),
+        )
+
+
+@pytest.mark.asyncio
+async def test_conversational_llm_unavailable_preserves_local_error(tmp_path, monkeypatch):
+    import app.services.quote_modification as modification
+    from app.services.llm_prompt_normalizer import LLMInterpreterUnavailable
+
+    repo = QuoteRepository(tmp_path / "quotes.db")
+    quote_id = _seed(repo)
+    monkeypatch.setattr(modification, "llm_fallback_enabled", lambda environment: True)
+
+    async def unavailable(*args, **kwargs):
+        raise LLMInterpreterUnavailable("offline")
+
+    monkeypatch.setattr(modification, "normalize_quote_modification_with_llm", unavailable)
+
+    with pytest.raises(ValueError, match="cambio concreto"):
+        await modify_stored_quote(
+            repo,
+            quote_id,
+            QuoteModificationRequest(text="ajustemos un poco la cotización", execute=False),
+        )
+
+
+@pytest.mark.asyncio
+async def test_conversational_llm_logs_do_not_echo_user_text(tmp_path, monkeypatch, capsys):
+    import app.services.quote_modification as modification
+    from app.services.llm_quote_modification_normalizer import LLMQuoteModificationNormalization
+
+    repo = QuoteRepository(tmp_path / "quotes.db")
+    quote_id = _seed(repo)
+    secret_text = "PROMPT-MODIFICACION-SENSIBLE"
+    monkeypatch.setattr(modification, "llm_fallback_enabled", lambda environment: True)
+
+    async def fake_normalize(*args, **kwargs):
+        return LLMQuoteModificationNormalization(
+            canonical_instruction="probalo en ECONOMY",
+            assumptions=[],
+            warnings=[],
+            needs_clarification=False,
+            clarification=None,
+        )
+
+    monkeypatch.setattr(modification, "normalize_quote_modification_with_llm", fake_normalize)
+
+    await modify_stored_quote(
+        repo,
+        quote_id,
+        QuoteModificationRequest(text=secret_text, execute=False),
+    )
+
+    output = capsys.readouterr().out
+    assert "llm fallback start" in output
+    assert secret_text not in output

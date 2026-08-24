@@ -252,6 +252,8 @@ class QuoteModificationResponse(BaseModel):
     base_quote_id: str
     new_quote_id: str | None = None
     parser: str = "conversation-delta-v1"
+    assumptions: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
     changes: list[QuoteChangeItem] = Field(default_factory=list)
     search_request: QuoteSearchAPIRequest
     quote: QuoteSearchAPIResponse | None = None

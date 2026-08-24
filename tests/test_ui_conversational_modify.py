@@ -29,3 +29,19 @@ def test_ui_conversational_controls_follow_version_mutability():
 
     assert 'data-current-only="true"' in prompt_fragment
     assert 'data-current-only="true"' in button_fragment
+
+
+
+def test_ui_modification_changes_show_parser_badge():
+    html = Path("app/web/index.html").read_text(encoding="utf-8")
+    assert "conversation-hybrid-llm-v1" in html
+    assert "Cambios aplicados" in html
+    assert "parser-badge" in html
+
+
+
+def test_ui_agent_modify_does_not_overwrite_new_quote_prompt():
+    html = Path("app/web/index.html").read_text(encoding="utf-8")
+
+    assert 'rec.source==="agent_modify"' in html
+    assert 'newQuotePrompt.value=""' in html
