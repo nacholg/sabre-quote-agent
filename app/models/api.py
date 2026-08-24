@@ -236,6 +236,27 @@ class AgentQuoteResponse(BaseModel):
     quote: QuoteSearchAPIResponse | None = None
 
 
+class QuoteModificationRequest(BaseModel):
+    text: str = Field(min_length=3, max_length=1000)
+    execute: bool = True
+
+
+class QuoteChangeItem(BaseModel):
+    field: str
+    label: str
+    before: str | int | bool | None = None
+    after: str | int | bool | None = None
+
+
+class QuoteModificationResponse(BaseModel):
+    base_quote_id: str
+    new_quote_id: str | None = None
+    parser: str = "conversation-delta-v1"
+    changes: list[QuoteChangeItem] = Field(default_factory=list)
+    search_request: QuoteSearchAPIRequest
+    quote: QuoteSearchAPIResponse | None = None
+
+
 class StoredQuoteSummary(BaseModel):
     quote_id: str
     created_at: str

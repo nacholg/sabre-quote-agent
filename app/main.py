@@ -10,6 +10,7 @@ from app.config import SabreEnvironmentMismatchError, runtime_environment_status
 from app.models.api import AgentQuoteRequest, AgentQuoteResponse, FareRuleAuditResponse, QuoteRenderResponse, QuoteSearchAPIRequest, QuoteSearchAPIResponse, QuoteSelectionRequest, QuoteSelectionResponse, StoredQuoteRecord, StoredQuoteSummary, QuoteWorkflowUpdate, QuoteWorkflowResponse, QuoteRefreshResponse
 from app.models.commercial_quote import CommercialQuote
 from app.models.api import QuoteArtifactCreate, QuoteArtifactRecord, QuoteVersionHistory
+from app.models.api import QuoteModificationRequest, QuoteModificationResponse
 from app.sabre.errors import SabreError
 from app.services.quote_service import search_quote
 from app.services.agent_service import agent_quote
@@ -20,6 +21,7 @@ from app.services.live_air_rules_audit import audit_stored_quote_live
 from app.services.fare_rule_response import prepare_fare_rule_response
 from app.services.reference_repository import get_reference_repository
 from app.services.quote_refresh import refresh_stored_quote
+from app.services.quote_modification import modify_stored_quote
 
 app = FastAPI(
     title="Sabre Quote Agent",
@@ -426,6 +428,48 @@ async def update_quote_workflow(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post(
+    "/quotes/{quote_id}/modify",
+    response_model=QuoteModificationResponse,
+    summary="Modificar conversacionalmente una cotización",
+)
+async def modify_quote(
+    quote_id: str,
+    request: QuoteModificationRequest,
+) -> QuoteModificationResponse:
+    try:
+        return await modify_stored_quote(
+            get_quote_repository(),
+            quote_id,
+            request,
+        )
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Cotización no encontrada: {quote_id}",
+        )
+    except QuoteVersionConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
+    except SabreEnvironmentMismatchError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+    except SabreError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
 
 
 @app.post("/quotes/{quote_id}/refresh", response_model=QuoteRefreshResponse)
