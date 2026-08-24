@@ -414,3 +414,281 @@ async def test_conversational_llm_logs_do_not_echo_user_text(tmp_path, monkeypat
     output = capsys.readouterr().out
     assert "llm fallback start" in output
     assert secret_text not in output
+
+
+@pytest.mark.asyncio
+async def test_conversational_combined_local_changes_are_atomic(tmp_path, monkeypatch):
+    import app.services.quote_modification as modification
+
+    repo = QuoteRepository(tmp_path / "quotes.db")
+    quote_id = _seed(repo)
+
+    called = False
+
+    async def fake_normalize(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("LLM no debe ejecutarse para cambios locales soportados")
+
+    monkeypatch.setattr(
+        modification,
+        "llm_fallback_enabled",
+        lambda environment: True,
+    )
+    monkeypatch.setattr(
+        modification,
+        "normalize_quote_modification_with_llm",
+        fake_normalize,
+    )
+
+    response = await modify_stored_quote(
+        repo,
+        quote_id,
+        QuoteModificationRequest(
+            text=(
+                "2 personas, economy, volver el 5 de noviembre, "
+                "solo directos y con equipaje"
+            ),
+            execute=False,
+        ),
+    )
+
+    assert response.parser == "conversation-delta-v1"
+    assert response.search_request.adults == 2
+    assert response.search_request.cabin == Cabin.ECONOMY
+    assert response.search_request.return_date.isoformat() == "2026-11-05"
+    assert response.search_request.direct is True
+    assert response.search_request.max_stops == 0
+    assert response.search_request.fare_preference.value == "baggage"
+    assert called is False
+
+    fields = {item.field for item in response.changes}
+    assert {
+        "passengers",
+        "cabin",
+        "max_stops",
+        "return_date",
+        "fare_preference",
+    }.issubset(fields)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("cambiá el destino a Madrid", "origen, destino"),
+        ("ahora salir desde Córdoba", "origen, destino"),
+        ("agregá un tramo a Barcelona", "tramos"),
+    ],
+)
+async def test_conversational_route_shape_changes_are_blocked_before_llm(
+    tmp_path,
+    monkeypatch,
+    text,
+    message,
+):
+    import app.services.quote_modification as modification
+
+    repo = QuoteRepository(tmp_path / "quotes.db")
+    quote_id = _seed(repo)
+
+    called = False
+
+    async def fake_normalize(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("LLM no debe intentar reescribir la ruta")
+
+    monkeypatch.setattr(
+        modification,
+        "llm_fallback_enabled",
+        lambda environment: True,
+    )
+    monkeypatch.setattr(
+        modification,
+        "normalize_quote_modification_with_llm",
+        fake_normalize,
+    )
+
+    with pytest.raises(ValueError, match=message):
+        await modify_stored_quote(
+            repo,
+            quote_id,
+            QuoteModificationRequest(
+                text=text,
+                execute=False,
+            ),
+        )
+
+    assert called is False
+
+
+@pytest.mark.asyncio
+async def test_conversational_minor_passenger_change_is_never_partially_applied(
+    tmp_path,
+    monkeypatch,
+):
+    import app.services.quote_modification as modification
+
+    repo = QuoteRepository(tmp_path / "quotes.db")
+    quote_id = _seed(repo)
+
+    called = False
+
+    async def fake_normalize(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("LLM no debe inventar composición de menores")
+
+    monkeypatch.setattr(
+        modification,
+        "llm_fallback_enabled",
+        lambda environment: True,
+    )
+    monkeypatch.setattr(
+        modification,
+        "normalize_quote_modification_with_llm",
+        fake_normalize,
+    )
+
+    with pytest.raises(ValueError, match="menores"):
+        await modify_stored_quote(
+            repo,
+            quote_id,
+            QuoteModificationRequest(
+                text="ahora 2 adultos y 1 niño de 9 años",
+                execute=False,
+            ),
+        )
+
+    assert called is False
+
+    record = repo.get(quote_id)
+    assert record is not None
+    stored = QuoteSearchAPIRequest.model_validate(record.search_request)
+    assert stored.adults == 1
+
+
+@pytest.mark.asyncio
+async def test_conversational_relative_passenger_change_requires_explicit_total(
+    tmp_path,
+    monkeypatch,
+):
+    import app.services.quote_modification as modification
+
+    repo = QuoteRepository(tmp_path / "quotes.db")
+    quote_id = _seed(repo)
+
+    monkeypatch.setattr(
+        modification,
+        "llm_fallback_enabled",
+        lambda environment: True,
+    )
+
+    with pytest.raises(ValueError, match="nuevo total"):
+        await modify_stored_quote(
+            repo,
+            quote_id,
+            QuoteModificationRequest(
+                text="agregá un adulto",
+                execute=False,
+            ),
+        )
+
+
+@pytest.mark.asyncio
+async def test_historical_version_cannot_be_modified(tmp_path, monkeypatch):
+    import app.services.quote_modification as modification
+    from app.services.quote_repository import QuoteVersionConflictError
+
+    repo = QuoteRepository(tmp_path / "quotes.db")
+    quote_id = _seed(repo)
+
+    async def fake_search(request):
+        return _empty_response()
+
+    monkeypatch.setattr(
+        modification,
+        "search_quote",
+        fake_search,
+    )
+
+    first = await modify_stored_quote(
+        repo,
+        quote_id,
+        QuoteModificationRequest(
+            text="cotizar para 2 personas",
+            execute=True,
+        ),
+    )
+    assert first.new_quote_id
+
+    with pytest.raises(QuoteVersionConflictError, match="histórica"):
+        await modify_stored_quote(
+            repo,
+            quote_id,
+            QuoteModificationRequest(
+                text="probalo en economy",
+                execute=False,
+            ),
+        )
+
+
+@pytest.mark.asyncio
+async def test_conversational_version_chain_preserves_followup_context(
+    tmp_path,
+    monkeypatch,
+):
+    import app.services.quote_modification as modification
+
+    repo = QuoteRepository(tmp_path / "quotes.db")
+    v1 = _seed(repo)
+
+    async def fake_search(request):
+        return _empty_response()
+
+    monkeypatch.setattr(
+        modification,
+        "search_quote",
+        fake_search,
+    )
+
+    first_text = "cotizar para 2 personas"
+    first = await modify_stored_quote(
+        repo,
+        v1,
+        QuoteModificationRequest(
+            text=first_text,
+            execute=True,
+        ),
+    )
+    v2 = first.new_quote_id
+    assert v2
+
+    second_text = "probalo en economy"
+    second = await modify_stored_quote(
+        repo,
+        v2,
+        QuoteModificationRequest(
+            text=second_text,
+            execute=True,
+        ),
+    )
+    v3 = second.new_quote_id
+    assert v3
+
+    rec2 = repo.get(v2)
+    rec3 = repo.get(v3)
+    assert rec2 is not None
+    assert rec3 is not None
+
+    assert rec2.parent_quote_id == v1
+    assert rec3.parent_quote_id == v2
+    assert rec2.agent_text == first_text
+    assert rec3.agent_text == second_text
+    assert rec2.interpretation["parser"] == "conversation-delta-v1"
+    assert rec3.interpretation["parser"] == "conversation-delta-v1"
+
+    history = repo.version_history(v3)
+    assert history.total_versions == 3
+    assert history.latest_quote_id == v3

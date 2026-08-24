@@ -124,6 +124,9 @@ Safety rules:
 - Never invent a change that the user did not request.
 - Never change origin, destination, route shape, passenger ages, or add/remove
   flight legs. Those operations are not supported here.
+- Passenger changes only support replacing the explicit ADULT total. Never add,
+  remove, infer, or change children, infants, passenger ages, or relative
+  passenger counts such as "add one passenger". Ask for clarification instead.
 - Never infer whether a lone date refers to departure or return on a round trip.
 - If the request is vague, unsupported, missing a factual value, or ambiguous,
   set needs_clarification=true and ask a short question in clarification.

@@ -128,6 +128,28 @@ _ADD_CARRIER_CONTEXT = re.compile(
     r"\b(?:tambien|agrega|agregar|sumar|suma)\b"
 )
 
+_UNSUPPORTED_ROUTE_CHANGE_PATTERN = re.compile(
+    r"\b(?:cambiar|cambia|cambiame|cambiemos|modificar|modifica|mover)\b"
+    r"[^.;]{0,40}\b(?:origen|destino|ruta)\b"
+    r"|"
+    r"\b(?:salir|partir|saliendo|partiendo)\s+desde\b"
+    r"|"
+    r"\b(?:agregar|agrega|sumar|suma|anadir|anade)\b"
+    r"[^.;]{0,32}\b(?:tramo|destino|origen)\b"
+)
+
+_UNSUPPORTED_MINOR_CHANGE_PATTERN = re.compile(
+    r"\b(?:nino|ninos|nina|ninas|menor|menores|child|children|"
+    r"infante|infantes|infant|infants|bebe|bebes|c\d{1,2}|inf)\b"
+)
+
+_RELATIVE_PASSENGER_CHANGE_PATTERN = re.compile(
+    r"\b(?:agregar|agrega|sumar|suma|quitar|quita|sacar|saca)\b"
+    r"[^.;]{0,32}\b(?:persona|personas|pasajero|pasajeros|"
+    r"adulto|adultos|adt)\b"
+)
+
+
 _FARE_PATTERNS: tuple[tuple[FarePreference, re.Pattern[str]], ...] = (
     (
         FarePreference.REFUNDABLE,
@@ -173,6 +195,31 @@ def _fold(value: str) -> str:
         for ch in value
         if unicodedata.category(ch) != "Mn"
     )
+
+
+def _guard_unsupported_change(text: str) -> None:
+    folded = _fold(text)
+
+    if _UNSUPPORTED_ROUTE_CHANGE_PATTERN.search(folded):
+        raise QuoteModificationClarificationRequired(
+            "Cambiar origen, destino, ruta o agregar tramos todavía no está "
+            "soportado en una modificación conversacional. Creá una nueva "
+            "cotización para cambiar origen, destino o tramos."
+        )
+
+    if _UNSUPPORTED_MINOR_CHANGE_PATTERN.search(folded):
+        raise QuoteModificationClarificationRequired(
+            "Modificar menores, infantes o sus edades todavía no está "
+            "soportado en una cotización existente. Creá una nueva "
+            "cotización indicando la composición completa de pasajeros."
+        )
+
+    if _RELATIVE_PASSENGER_CHANGE_PATTERN.search(folded):
+        raise QuoteModificationClarificationRequired(
+            "Para cambiar pasajeros indicá el nuevo total de adultos "
+            "(por ejemplo, 'cotizar para 3 personas') en lugar de agregar "
+            "o quitar pasajeros relativamente."
+        )
 
 
 def _passenger_label(request: QuoteSearchAPIRequest) -> str:
@@ -385,6 +432,7 @@ def _interpret_delta(
     base: QuoteSearchAPIRequest,
 ) -> dict[str, Any]:
     folded = _fold(text)
+    _guard_unsupported_change(text)
     delta: dict[str, Any] = {}
 
     for pattern in _ADULT_COUNT_PATTERNS:
