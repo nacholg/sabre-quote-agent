@@ -27,6 +27,9 @@ AIRPORT_ALIASES = {
     "aep": "AEP", "aeroparque": "AEP",
     "bue": "BUE", "buenos aires": "BUE",
     "mia": "MIA", "miami": "MIA",
+    "mex": "MEX", "mexico": "MEX", "méxico": "MEX",
+    "ciudad de mexico": "MEX", "ciudad de méxico": "MEX",
+    "mexico city": "MEX",
     "jfk": "JFK", "nueva york": "NYC", "new york": "NYC", "nyc": "NYC",
     "dfw": "DFW", "dallas": "DFW",
     "mad": "MAD", "madrid": "MAD",
@@ -96,6 +99,10 @@ UNSAFE_LOCATION_TOKENS = {
     "ida", "dos", "una", "uno", "las", "los", "san",
     "ana",
 }
+
+
+class AgentClarificationRequired(ValueError):
+    """The user's request is missing factual input that must not be guessed."""
 
 
 def _fold(value: str) -> str:
@@ -766,7 +773,7 @@ def _passengers(text: str) -> tuple[list[PassengerSpec], list[str]]:
         and not overlaps(generic_child_match.span())
     ):
         quantity = qty_value(generic_child_match.group("qty"))
-        raise ValueError(
+        raise AgentClarificationRequired(
             f"Se detectaron {quantity} menor(es) sin edad. "
             "Necesito la edad de cada menor "
             "(por ejemplo C09 x4 o '4 niños de 9 años')."
@@ -912,7 +919,7 @@ def _parse_explicit_trip_legs(
         )
         tail = text[end:next_start]
 
-        date_match = re.search(
+        date_matches = re.finditer(
             r"\b("
             r"\d{1,2}\s*[A-Za-z]{3}(?:\s*20\d{2})?"
             r"|"
@@ -921,21 +928,24 @@ def _parse_explicit_trip_legs(
             tail,
         )
 
-        if not date_match:
+        leg_date = None
+        for date_match in date_matches:
+            candidate = _parse_compact_date_token(
+                date_match.group(1),
+                today,
+            )
+            if candidate is not None:
+                leg_date = candidate
+                break
+
+        if leg_date is None:
             if len(routes) == 1:
+                # A single explicit route may still use a natural-language
+                # date range handled later by _parse_dates(). Ignore tokens
+                # such as "1 ADT" that only look like compact dates.
                 return []
             raise ValueError(
-                f"No pude identificar la fecha del tramo "
-                f"{origin}-{destination}."
-            )
-
-        leg_date = _parse_compact_date_token(
-            date_match.group(1),
-            today,
-        )
-        if leg_date is None:
-            raise ValueError(
-                f"No pude interpretar la fecha del tramo "
+                f"No pude identificar una fecha válida del tramo "
                 f"{origin}-{destination}."
             )
 

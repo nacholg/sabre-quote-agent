@@ -33,6 +33,14 @@
     button:disabled{opacity:.5;cursor:not-allowed}
     .muted{color:var(--muted);font-size:13px}
     .interpret{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:12px}
+    .interpret-heading{display:flex;align-items:center;gap:8px;margin:16px 0 0}
+    .parser-badge{
+      display:inline-flex;align-items:center;border-radius:999px;
+      padding:3px 7px;font-size:10px;font-weight:800;
+      border:1px solid var(--line);background:#f2f4f7;color:#475467;
+    }
+    .parser-badge.ai{background:#f4f3ff;color:#5925dc;border-color:#d9d6fe}
+    .parser-badge.local{background:#f2f4f7;color:#475467}
     .chip{background:#f7f9fc;border:1px solid var(--line);border-radius:9px;padding:9px 10px;font-size:13px}
     .status{padding:9px 11px;border-radius:10px;margin-top:10px;font-size:13px}
     .status.ok{background:#ecfdf3;color:var(--ok)}
@@ -535,9 +543,22 @@ async function refreshQuote(){
   }catch(e){alert(e.message);}
 }
 
+function interpretationParserMeta(i){
+  const parser=String(i?.parser||"").toLowerCase();
+
+  if(parser.includes("hybrid")||parser.includes("llm")){
+    return {label:"IA",className:"ai"};
+  }
+  if(parser.includes("deterministic")){
+    return {label:"Local",className:"local"};
+  }
+  return null;
+}
+
 function renderInterpretation(i){
   const req=i.search_request || {};
   const legs=req.legs||[];
+  const parserMeta=interpretationParserMeta(i);
 
   const items=[];
 
@@ -570,7 +591,10 @@ function renderInterpretation(i){
       req.time_constraints.map(fmtTimeConstraint).join(" · ")
     ]);
   }
-  let html=`<h3>Interpretación</h3><div class="interpret">${items.map(x=>`<div class="chip"><strong>${esc(x[0])}</strong><br>${esc(x[1]).replace(/\n/g,"<br>")}</div>`).join("")}</div>`;
+  const parserBadge=parserMeta
+    ? `<span class="parser-badge ${parserMeta.className}" title="${parserMeta.label==="IA"?"Interpretación asistida por IA":"Interpretación local"}">${parserMeta.label}</span>`
+    : "";
+  let html=`<h3 class="interpret-heading">Interpretación ${parserBadge}</h3><div class="interpret">${items.map(x=>`<div class="chip"><strong>${esc(x[0])}</strong><br>${esc(x[1]).replace(/\n/g,"<br>")}</div>`).join("")}</div>`;
   if(i.assumptions?.length) html+=`<div class="status warn">${i.assumptions.map(esc).join("<br>")}</div>`;
   if(i.warnings?.length) html+=`<div class="status err">${i.warnings.map(esc).join("<br>")}</div>`;
   const el=document.getElementById("interpretation"); el.innerHTML=html; el.classList.remove("hidden");
