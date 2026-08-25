@@ -2196,11 +2196,22 @@ function currentResultPassengerCount(){
 const selectedFareIndexByRank=new Map();
 let selectedFareQuoteId=null;
 
+function hydratePersistedFareChoices(){
+  for(const selection of currentQuote?.selected_fares||[]){
+    const rank=Number(selection?.rank);
+    const fareIndex=Number(selection?.fare_index);
+    if(Number.isInteger(rank) && Number.isInteger(fareIndex) && fareIndex>=0){
+      selectedFareIndexByRank.set(rank,fareIndex);
+    }
+  }
+}
+
 function ensureFareChoiceQuote(){
   const quoteId=currentCommercialQuote?.quote_id||null;
   if(selectedFareQuoteId!==quoteId){
     selectedFareIndexByRank.clear();
     selectedFareQuoteId=quoteId;
+    hydratePersistedFareChoices();
   }
 }
 
@@ -3112,13 +3123,45 @@ function renderQuote(q,commercial=null){
 }
 function selectedRanks(){return [...document.querySelectorAll(".rank-check:checked")].map(x=>Number(x.value));}
 
+function selectedFareChoices(ranks){
+  ensureFareChoiceQuote();
+
+  return ranks.map(rank=>{
+    const option=resultOptionByRank(rank);
+    const fares=Array.isArray(option?.fares)?option.fares:[];
+    if(!fares.length){
+      throw new Error(`La opción ${rank} no tiene tarifas comerciales disponibles.`);
+    }
+
+    let fareIndex=selectedFareIndexByRank.get(Number(rank));
+    if(!Number.isInteger(fareIndex) || !fares[fareIndex]){
+      fareIndex=resultDefaultFareIndex(option);
+      selectedFareIndexByRank.set(Number(rank),fareIndex);
+    }
+
+    return {
+      rank:Number(rank),
+      fare_index:Number(fareIndex),
+    };
+  });
+}
+
 async function saveSelection(){
   if(!currentQuoteId)return;
   const ranks=selectedRanks();
   if(!ranks.length){alert("Seleccioná al menos una opción.");return;}
   try{
-    await api(`/quotes/${currentQuoteId}/select`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ranks})});
-    alert("Selección guardada.");
+    const fareSelections=selectedFareChoices(ranks);
+    const saved=await api(`/quotes/${currentQuoteId}/select`,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ranks,fares:fareSelections})
+    });
+    if(currentQuote){
+      currentQuote.selected_ranks=saved.selected_ranks||ranks;
+      currentQuote.selected_fares=saved.selected_fares||[];
+    }
+    alert("Selección y tarifa guardadas.");
     await loadHistory();
   }catch(e){alert(e.message);}
 }
@@ -3128,6 +3171,10 @@ async function clearSelection(){
   try{
     await api(`/quotes/${currentQuoteId}/select`,{method:"DELETE"});
     document.querySelectorAll(".rank-check").forEach(x=>x.checked=false);
+    if(currentQuote){
+      currentQuote.selected_ranks=[];
+      currentQuote.selected_fares=[];
+    }
     alert("Selección eliminada.");
   }catch(e){alert(e.message);}
 }
@@ -3443,7 +3490,9 @@ async function openQuote(id){
     currentQuoteId=id;
     currentQuote=rec.quote_response;
     currentQuote.selected_ranks=rec.selected_ranks||[];
+    currentQuote.selected_fares=rec.selected_fares||[];
     currentCommercialQuote=commercial;
+    selectedFareQuoteId=null;
     renderStoredInterpretation(rec);
     renderQuote(currentQuote,currentCommercialQuote);
     document.getElementById("quoteId").textContent=id;

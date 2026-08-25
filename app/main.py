@@ -302,7 +302,11 @@ async def select_quote_options(
     request: QuoteSelectionRequest,
 ) -> QuoteSelectionResponse:
     try:
-        return get_quote_repository().select(quote_id, request.ranks)
+        return get_quote_repository().select(
+            quote_id,
+            request.ranks,
+            request.fares,
+        )
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Cotización no encontrada: {quote_id}")
     except QuoteVersionConflictError as exc:
