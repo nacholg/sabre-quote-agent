@@ -30,7 +30,7 @@ def test_parser_badge_is_subtle_and_inline():
     assert ".parser-badge{" in source
     assert ".parser-badge.ai{" in source
     assert ".parser-badge.local{" in source
-    assert 'Interpretación ${parserBadge}' in source
+    assert 'Interpretación de tu solicitud ${parserBadge}' in source
 
 
 def test_legacy_interpretation_without_parser_has_no_badge():

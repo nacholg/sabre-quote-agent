@@ -15,7 +15,9 @@ def test_web_app_loads():
         response = client.get("/app")
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
-    assert "Sabre Quote Agent" in response.text
+    assert "Patagonik Travel" in response.text
+    assert "Patagonik Travel &amp; Service" in response.text
+    assert "Sabre BFM" in response.text
     assert "/agent/quote" in response.text
     assert "/fare-rules" in response.text
     assert "/whatsapp" in response.text
