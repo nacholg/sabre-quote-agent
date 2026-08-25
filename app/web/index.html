@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sabre Quote Agent</title>
+  <title>Patagonik Travel · Cotizaciones aéreas</title>
+  <meta name="theme-color" content="#0f2742">
   <style>
     :root {
       --bg:#f5f7fb; --panel:#fff; --text:#18202a; --muted:#677383;
@@ -210,18 +211,431 @@
       .search-row{grid-template-columns:1fr}
     }
   </style>
+
+<style id="patagonik-v029a">
+  :root{
+    --pt-navy:#0f2742;
+    --pt-navy-2:#183a5a;
+    --pt-sky:#6ec6f0;
+    --pt-sky-strong:#2d9cdb;
+    --pt-sky-soft:#eaf7ff;
+    --pt-river:#d3263f;
+    --pt-river-soft:#fdecef;
+    --pt-gold:#f2c94c;
+    --pt-bg:#f4f8fc;
+    --pt-panel:#ffffff;
+    --pt-text:#1f2937;
+    --pt-muted:#667085;
+    --pt-line:#dbe7f0;
+    --pt-line-strong:#c8dae8;
+    --pt-ok:#147a4b;
+    --pt-ok-soft:#eaf8f0;
+    --pt-warn:#936200;
+    --pt-warn-soft:#fff7e4;
+    --pt-danger:#b42318;
+    --pt-danger-soft:#fdeceb;
+    --pt-shadow:0 12px 34px rgba(15,39,66,.075);
+    --pt-shadow-hover:0 16px 38px rgba(15,39,66,.12);
+
+    --bg:var(--pt-bg);
+    --panel:var(--pt-panel);
+    --text:var(--pt-text);
+    --muted:var(--pt-muted);
+    --line:var(--pt-line);
+    --accent:var(--pt-sky-strong);
+    --accent2:var(--pt-sky-soft);
+    --ok:var(--pt-ok);
+    --warn:var(--pt-warn);
+    --danger:var(--pt-danger);
+    --shadow:var(--pt-shadow);
+  }
+
+  html{background:var(--pt-bg)}
+  body{
+    min-height:100vh;
+    background:
+      radial-gradient(circle at 92% 0%, rgba(110,198,240,.16), transparent 28rem),
+      linear-gradient(180deg,#f8fbfe 0,#f4f8fc 18rem,#f3f7fb 100%);
+    color:var(--pt-text);
+  }
+
+  .app-header{
+    height:76px;
+    padding:0 28px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:24px;
+    position:sticky;
+    top:0;
+    z-index:50;
+    background:rgba(255,255,255,.94);
+    backdrop-filter:blur(16px);
+    border-bottom:1px solid var(--pt-line);
+    color:var(--pt-text);
+    box-shadow:0 4px 16px rgba(15,39,66,.035);
+  }
+  .app-header::after{
+    content:"";
+    position:absolute;
+    left:0;right:0;bottom:-1px;
+    height:2px;
+    background:linear-gradient(
+      90deg,
+      var(--pt-sky) 0 42%,
+      rgba(255,255,255,0) 42% 46%,
+      var(--pt-river) 46% 52%,
+      rgba(255,255,255,0) 52% 56%,
+      var(--pt-sky) 56% 100%
+    );
+    opacity:.8;
+  }
+  .brand-lockup{display:flex;align-items:center;gap:12px;min-width:0}
+  .brand-mark{
+    width:42px;height:42px;flex:0 0 42px;
+    position:relative;overflow:hidden;
+    border-radius:13px;
+    background:linear-gradient(145deg,#eaf7ff 0,#d8f1ff 100%);
+    border:1px solid #bde4f8;
+  }
+  .brand-mark::before{
+    content:"";
+    position:absolute;
+    width:10px;height:10px;border-radius:50%;
+    right:7px;top:7px;
+    background:var(--pt-gold);
+    box-shadow:0 0 0 4px rgba(242,201,76,.15);
+  }
+  .brand-mark::after{
+    content:"";
+    position:absolute;
+    width:56px;height:9px;
+    left:-9px;top:17px;
+    transform:rotate(-38deg);
+    border-radius:999px;
+    background:var(--pt-river);
+    box-shadow:0 0 0 4px rgba(255,255,255,.7);
+  }
+  .brand-name{
+    font-size:18px;font-weight:850;letter-spacing:.01em;
+    color:var(--pt-navy);line-height:1.05;
+  }
+  .brand-subtitle{
+    margin-top:4px;font-size:11px;font-weight:700;
+    letter-spacing:.12em;text-transform:uppercase;
+    color:var(--pt-sky-strong);
+  }
+  .header-meta{display:flex;align-items:center;gap:10px;min-width:0}
+  .header-note{
+    font-size:12px;font-weight:650;color:var(--pt-muted);
+    padding:7px 10px;border:1px solid var(--pt-line);
+    border-radius:999px;background:#fff;
+  }
+  .app-header .badge{
+    display:inline-flex;align-items:center;gap:6px;
+    font-size:12px;font-weight:800;
+    background:var(--pt-navy);color:#fff;
+    border:1px solid rgba(255,255,255,.12);
+    padding:8px 11px;border-radius:999px;
+    box-shadow:0 5px 14px rgba(15,39,66,.14);
+  }
+  .app-header .badge::before{
+    content:"";width:7px;height:7px;border-radius:50%;
+    background:#66d19e;box-shadow:0 0 0 3px rgba(102,209,158,.16);
+  }
+
+  .layout{
+    grid-template-columns:318px minmax(0,1fr);
+    min-height:calc(100vh - 76px);
+  }
+  aside{
+    top:76px;
+    height:calc(100vh - 76px);
+    padding:22px 18px 28px;
+    background:rgba(250,253,255,.93);
+    border-right:1px solid var(--pt-line);
+  }
+  main{
+    max-width:1540px;
+    padding:30px 32px 56px;
+  }
+
+  .aside-heading{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:0 2px 10px;
+  }
+  .aside-heading strong{font-size:16px;color:var(--pt-navy)}
+  .eyebrow{
+    display:block;
+    margin-bottom:5px;
+    font-size:10px;font-weight:850;letter-spacing:.13em;
+    text-transform:uppercase;color:var(--pt-sky-strong);
+  }
+  .aside-heading .ghost{
+    width:36px;height:36px;padding:0;
+    border:1px solid var(--pt-line);
+    background:#fff;color:var(--pt-navy);
+    box-shadow:0 4px 10px rgba(15,39,66,.04);
+  }
+
+  .panel{
+    position:relative;
+    overflow:hidden;
+    border:1px solid var(--pt-line);
+    border-radius:18px;
+    padding:22px;
+    margin-bottom:20px;
+    background:rgba(255,255,255,.97);
+    box-shadow:var(--pt-shadow);
+  }
+  .hero-panel::before{
+    content:"";
+    position:absolute;left:0;right:0;top:0;height:4px;
+    background:linear-gradient(90deg,var(--pt-sky) 0 72%,var(--pt-river) 72% 78%,var(--pt-sky) 78% 100%);
+  }
+  .section-head,.results-head{
+    display:flex;align-items:flex-start;justify-content:space-between;
+    gap:18px;margin-bottom:18px;
+  }
+  .section-head h2,.results-head h2{
+    margin:0;color:var(--pt-navy);
+    font-size:24px;letter-spacing:-.02em;
+  }
+  .section-copy{margin:6px 0 0;color:var(--pt-muted);font-size:13px}
+  .pro-hint{
+    flex:0 0 auto;
+    display:inline-flex;align-items:center;
+    min-height:30px;padding:6px 10px;
+    border:1px solid #cceaf9;border-radius:999px;
+    background:var(--pt-sky-soft);
+    color:#17648d;font-size:11px;font-weight:750;
+  }
+
+  .search-row{
+    grid-template-columns:minmax(0,1fr) 138px 170px;
+    gap:12px;align-items:stretch;
+  }
+  .field-shell{display:flex;flex-direction:column;gap:7px}
+  .field-shell label{font-size:11px;font-weight:800;color:var(--pt-navy)}
+  textarea,.history-search,input,select{
+    border-color:var(--pt-line-strong)!important;
+    background:#fff;color:var(--pt-text);
+  }
+  textarea{
+    min-height:100px;border-radius:13px;padding:14px 15px;
+    line-height:1.45;
+    box-shadow:inset 0 1px 2px rgba(15,39,66,.025);
+  }
+  textarea::placeholder,input::placeholder{color:#98a2b3}
+  textarea:focus,input:focus,select:focus,.history-search:focus{
+    outline:none;
+    border-color:var(--pt-sky-strong)!important;
+    box-shadow:0 0 0 4px rgba(45,156,219,.12);
+  }
+  select{border-radius:13px;padding:11px 12px}
+  .env-shell select{height:100%;min-height:48px}
+  .search-row .primary{
+    min-height:48px;align-self:flex-end;
+    display:flex;align-items:center;justify-content:center;gap:8px;
+  }
+  .search-icon{font-size:18px;line-height:1}
+  .prompt-hints{
+    display:flex;flex-wrap:wrap;align-items:center;gap:7px;
+    margin-top:11px;color:var(--pt-muted);font-size:11px;
+  }
+  .example-chip{
+    display:inline-flex;align-items:center;padding:5px 9px;
+    border:1px solid var(--pt-line);border-radius:999px;
+    background:#fbfdff;color:#476072;font-weight:650;
+  }
+
+  button{border-radius:11px;font-weight:750}
+  .primary{
+    background:linear-gradient(135deg,var(--pt-sky-strong),#247fbd);
+    color:#fff;
+    box-shadow:0 8px 18px rgba(45,156,219,.20);
+  }
+  .secondary{
+    background:var(--pt-sky-soft);
+    color:#17648d;
+    border:1px solid #cceaf9;
+  }
+  .ghost{
+    background:#f8fafc;color:#425466;
+    border:1px solid var(--pt-line);
+  }
+  .danger{
+    background:var(--pt-river-soft);
+    color:#a82438;
+    border:1px solid #f6c8cf;
+  }
+
+  .history-tools{margin-top:6px}
+  .history-search{border-radius:12px;padding:11px 12px}
+  .history-count{margin:7px 2px 12px}
+  .history-item{
+    margin:9px 0;padding:12px 34px 12px 12px;
+    border-radius:13px;border-color:var(--pt-line);
+    box-shadow:0 3px 10px rgba(15,39,66,.025);
+  }
+  .history-item:hover{
+    border-color:#9fd6f1;background:#f9fdff;
+    box-shadow:0 8px 18px rgba(15,39,66,.075);
+  }
+  .history-item.active{
+    border-color:var(--pt-sky-strong);
+    background:linear-gradient(135deg,#f5fbff,#fff);
+    box-shadow:0 0 0 3px rgba(45,156,219,.09);
+  }
+
+  .interpret{
+    grid-template-columns:repeat(auto-fit,minmax(145px,1fr));
+    gap:9px;
+  }
+  .interpret-heading{margin-top:18px;color:var(--pt-navy)}
+  .chip{
+    border:1px solid var(--pt-line);
+    border-radius:12px;padding:11px 12px;
+    background:linear-gradient(180deg,#fbfdff,#f8fbfd);
+    color:#425466;line-height:1.35;
+  }
+  .chip strong{color:var(--pt-navy);font-size:12px}
+  .parser-badge{border-radius:999px;padding:4px 8px;letter-spacing:.02em}
+  .parser-badge.ai{background:#f4f0ff;color:#6941c6;border-color:#d9d6fe}
+  .parser-badge.local{background:var(--pt-sky-soft);color:#17648d;border-color:#cceaf9}
+
+  .status{border:1px solid transparent;border-radius:12px;padding:10px 12px}
+  .status.ok{background:var(--pt-ok-soft);color:var(--pt-ok);border-color:#c7ead7}
+  .status.warn{background:var(--pt-warn-soft);color:var(--pt-warn);border-color:#f2dfad}
+  .status.err{background:var(--pt-danger-soft);color:var(--pt-danger);border-color:#f5c7c3}
+
+  .results-panel{padding-top:20px}
+  .results-head{align-items:center;margin-bottom:4px}
+  .results-title-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  #quoteId{
+    border-radius:999px;background:#f8fbfd;color:#476072;padding:7px 10px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;
+  }
+  .version-bar{
+    margin-top:15px;padding:12px 13px;border-radius:13px;
+    border-color:var(--pt-line);
+    background:linear-gradient(180deg,#fbfdff,#f7fbfe);
+  }
+  .version-pill{border-color:var(--pt-line);color:#425466}
+  .version-pill.current{
+    border-color:var(--pt-sky-strong);
+    background:var(--pt-sky-soft);color:#17648d;
+  }
+
+  .modify-composer{
+    margin-top:14px;border:1px solid #cde7f4;border-radius:15px;
+    padding:15px;
+    background:linear-gradient(135deg,rgba(234,247,255,.92),rgba(255,255,255,.96));
+  }
+  .modify-head{
+    display:flex;justify-content:space-between;align-items:center;
+    gap:10px;margin-bottom:9px;
+  }
+  .modify-head strong{color:var(--pt-navy)}
+  .modify-grid{
+    display:grid;grid-template-columns:minmax(0,1fr) 160px;
+    gap:10px;align-items:stretch;
+  }
+  .modify-grid textarea{min-height:72px}
+  .workflow-fields{
+    margin-top:14px!important;padding:12px;
+    border:1px solid var(--pt-line);border-radius:14px;background:#fbfdff;
+  }
+
+  .option-card{
+    position:relative;border-radius:16px;border-color:var(--pt-line);
+    padding:17px;margin:14px 0;background:#fff;
+    box-shadow:0 5px 16px rgba(15,39,66,.045);
+    transition:transform 140ms ease,box-shadow 140ms ease,border-color 140ms ease;
+  }
+  .option-card::before{
+    content:"";position:absolute;left:-1px;top:14px;bottom:14px;
+    width:3px;border-radius:0 999px 999px 0;background:var(--pt-sky);
+  }
+  .option-card:hover{
+    transform:translateY(-1px);border-color:#b9deef;box-shadow:var(--pt-shadow-hover);
+  }
+  .option-title{color:var(--pt-navy);font-size:15px}
+  .commercial-label{border-radius:999px}
+  .commercial-label.recommended{background:#fff8df;color:#8a6400;border-color:#f4df8c}
+  .commercial-label.lowest_price{background:#edf9f2;color:#147a4b;border-color:#c7ead7}
+  .fare{
+    border-color:var(--pt-line);border-radius:13px;padding:13px;
+    background:linear-gradient(180deg,#fbfdff,#f7fafc);
+  }
+  .fare strong{color:var(--pt-navy)}
+  .price{color:var(--pt-navy);letter-spacing:-.02em}
+  .quote-actions{padding-top:14px;border-top:1px solid var(--pt-line);margin-top:18px}
+
+  .artifact-panel::before{
+    content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
+    background:var(--pt-river);opacity:.85;
+  }
+  .artifact-item{border-radius:14px;border-color:var(--pt-line)}
+  .artifact-item summary{background:#fbfdff}
+  .artifact-type{background:var(--pt-sky-soft);color:#17648d}
+
+  @media(max-width:1100px){
+    .layout{grid-template-columns:270px minmax(0,1fr)}
+    main{padding:24px 20px 46px}
+    .search-row{grid-template-columns:minmax(0,1fr) 124px 148px}
+    .header-note{display:none}
+  }
+  @media(max-width:900px){
+    .app-header{height:auto;min-height:72px;padding:14px 18px}
+    .brand-subtitle{display:none}
+    .layout{grid-template-columns:1fr;min-height:auto}
+    aside{
+      position:static;height:auto;max-height:38vh;
+      border-right:0;border-bottom:1px solid var(--pt-line);
+      padding:16px 18px;
+    }
+    main{padding:18px 14px 40px}
+    .section-head,.results-head{flex-direction:column;align-items:flex-start}
+    .search-row,.modify-grid{grid-template-columns:1fr}
+    .search-row .primary{min-height:48px}
+    .pro-hint{align-self:flex-start}
+  }
+  @media(max-width:560px){
+    .brand-name{font-size:16px}
+    .brand-mark{width:38px;height:38px;flex-basis:38px}
+    .header-meta{gap:6px}
+    .app-header .badge{font-size:10px;padding:7px 9px}
+    .panel{padding:17px;border-radius:15px}
+    .section-head h2,.results-head h2{font-size:21px}
+    .prompt-hints{display:none}
+  }
+</style>
+
 </head>
 <body>
-<header>
-  <h1>Sabre Quote Agent</h1>
-  <div id="runtimeBadge" class="badge">Read-only · cargando entorno…</div>
+<header class="app-header">
+  <div class="brand-lockup">
+    <div class="brand-mark" aria-hidden="true"></div>
+    <div>
+      <div class="brand-name">Patagonik Travel</div>
+      <div class="brand-subtitle">Panel de cotización aérea</div>
+    </div>
+  </div>
+  <div class="header-meta">
+    <span class="header-note">Shopping · solo lectura</span>
+    <div id="runtimeBadge" class="badge">Read-only · cargando entorno…</div>
+  </div>
 </header>
 
 <div class="layout">
   <aside>
-    <div style="display:flex;justify-content:space-between;align-items:center">
-      <strong>Cotizaciones</strong>
-      <button class="ghost" onclick="loadHistory()" title="Actualizar">↻</button>
+    <div class="aside-heading">
+      <div>
+        <span class="eyebrow">Workspace</span>
+        <strong>Cotizaciones</strong>
+      </div>
+      <button class="ghost" onclick="loadHistory()" title="Actualizar historial" aria-label="Actualizar historial">↻</button>
     </div>
     <div class="history-tools">
       <input
@@ -238,37 +652,59 @@
   </aside>
 
   <main>
-    <section class="panel">
-      <h2 style="margin-top:0">Nueva cotización</h2>
-      <div class="search-row">
-        <textarea id="prompt" placeholder="Ej.: Cotizame EZE-MIA del 19 al 30 de septiembre, 1 adulto, directo, AA, USD, branded"></textarea>
-        <select id="environment">
-          <option value="cert" selected>CERT</option>
-          <option value="prod">PROD</option>
-        </select>
-        <button id="searchBtn" class="primary" onclick="runQuote()">Buscar</button>
+    <section class="panel hero-panel">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Nueva búsqueda</span>
+          <h2>Pedí una cotización</h2>
+          <p class="section-copy">Escribí el viaje como lo pedirías a una persona. También podés usar códigos y abreviaturas de Sabre.</p>
+        </div>
+        <span class="pro-hint">Lenguaje natural · GDS friendly</span>
       </div>
-      <div class="muted" style="margin-top:8px">La búsqueda usa /agent/quote y guarda la cotización automáticamente.</div>
+      <div class="search-row">
+        <div class="field-shell">
+          <label for="prompt">Pedido de viaje</label>
+          <textarea id="prompt" placeholder="Ej.: Cotizame EZE-MIA del 19 al 30 de septiembre, 1 adulto, directo, AA, USD, branded"></textarea>
+        </div>
+        <div class="field-shell env-shell">
+          <label for="environment">Entorno</label>
+          <select id="environment" aria-label="Entorno Sabre">
+            <option value="cert" selected>CERT</option>
+            <option value="prod">PROD</option>
+          </select>
+        </div>
+        <button id="searchBtn" class="primary" onclick="runQuote()"><span class="search-icon" aria-hidden="true">⌕</span> Buscar</button>
+      </div>
+      <div class="prompt-hints" aria-label="Ejemplos de pedidos">
+        <span>Ejemplos:</span>
+        <span class="example-chip">Ida y vuelta a Madrid</span>
+        <span class="example-chip">MIA para 2 personas</span>
+        <span class="example-chip">Business a Europa</span>
+        <span class="example-chip">Sólo directos</span>
+      </div>
       <div id="searchStatus"></div>
       <div id="interpretation" class="hidden"></div>
     </section>
 
-    <section id="quoteSection" class="panel hidden">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+    <section id="quoteSection" class="panel results-panel hidden">
+      <div class="results-head">
         <div>
-          <h2 id="quoteTitle" style="margin:0">Resultados</h2>
+          <span class="eyebrow">Comparación</span>
+          <div class="results-title-line">
+            <h2 id="quoteTitle">Resultados</h2>
+            <div id="quoteId" class="chip"></div>
+          </div>
           <div id="quoteMeta" class="muted"></div>
         </div>
-        <div id="quoteId" class="chip"></div>
       </div>
       <div id="versionBar" class="version-bar hidden"></div>
 
-      <div id="modifyComposer" style="margin-top:14px;border:1px solid var(--line);border-radius:12px;padding:14px;background:#fafcff">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px">
+      <div id="modifyComposer" class="modify-composer">
+        <div class="modify-head">
           <strong>Continuar esta cotización</strong>
-          <span class="muted">El cambio crea una nueva versión</span>
+          <span class="muted">Cada cambio crea una nueva versión</span>
         </div>
-        <div style="display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:10px;align-items:stretch">
+        <div class="modify-grid">
           <textarea
             id="modifyPrompt"
             data-current-only="true"
@@ -287,14 +723,14 @@
       </div>
 
       <div id="timeMatchStatus" class="hidden"></div>
-      <div class="interpret" style="margin-top:14px">
-        <input id="clientName" placeholder="Cliente" style="border:1px solid var(--line);border-radius:10px;padding:10px">
-        <input id="clientReference" placeholder="Referencia / expediente" style="border:1px solid var(--line);border-radius:10px;padding:10px">
-        <input id="quoteNotes" placeholder="Notas internas" style="border:1px solid var(--line);border-radius:10px;padding:10px">
+      <div class="interpret workflow-fields">
+        <input id="clientName" placeholder="Cliente" aria-label="Cliente">
+        <input id="clientReference" placeholder="Referencia / expediente" aria-label="Referencia o expediente">
+        <input id="quoteNotes" placeholder="Notas internas" aria-label="Notas internas">
       </div>
       <div id="options"></div>
       <div id="moreOptions" class="actions hidden"></div>
-      <div class="actions">
+      <div class="actions quote-actions">
         <button class="primary" data-current-only="true" onclick="saveSelection()">Guardar selección</button>
         <button class="secondary" data-current-only="true" onclick="saveWorkflow()">Guardar datos</button>
         <button class="secondary" data-current-only="true" onclick="refreshQuote()">Refrescar / Reprice</button>
@@ -306,7 +742,7 @@
       </div>
     </section>
 
-    <section id="artifactSection" class="panel hidden">
+    <section id="artifactSection" class="panel artifact-panel hidden">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
         <div>
           <h2 style="margin:0">Salidas generadas</h2>
