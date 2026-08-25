@@ -5,9 +5,10 @@ HTML = Path("app/web/index.html").read_text(encoding="utf-8")
 
 def test_v029a_patagonik_branding_is_present():
     assert "Patagonik Travel" in HTML
-    assert "Panel de cotización aérea" in HTML
+    assert "Patagonik Travel &amp; Service" in HTML
+    assert "Sabre BFM" in HTML
     assert 'class="brand-lockup"' in HTML
-    assert 'class="brand-mark"' in HTML
+    assert 'class="brand-logo"' in HTML
 
 
 def test_v029a_visual_tokens_include_argentina_and_river_accents():
