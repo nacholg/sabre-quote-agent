@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.db.models import QuoteArtifactRow, QuoteRow
+from app.db.models import QuoteArtifactRow, QuoteFareSelectionRow, QuoteRow
 
 
 def test_quote_model_matches_real_sqlite_columns():
@@ -21,6 +21,16 @@ def test_quote_model_matches_real_sqlite_columns():
         "sent_at",
         "parent_quote_id",
         "refreshed_quote_id",
+    ]
+
+
+def test_fare_selection_model_columns():
+    assert [c.name for c in QuoteFareSelectionRow.__table__.columns] == [
+        "quote_id",
+        "rank",
+        "fare_index",
+        "fare_json",
+        "selected_at",
     ]
 
 
@@ -53,4 +63,7 @@ def test_alembic_files_exist():
     assert Path("alembic/env.py").exists()
     assert Path(
         "alembic/versions/20260820_01_portable_quote_schema.py"
+    ).exists()
+    assert Path(
+        "alembic/versions/20260825_02_quote_fare_selections.py"
     ).exists()

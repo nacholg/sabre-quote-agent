@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 from app.models.itinerary import ItineraryOption
+from app.models.commercial_quote import CommercialFare
 from app.models.quote_request import (
     Cabin,
     FarePreference,
@@ -259,6 +260,15 @@ class QuoteModificationResponse(BaseModel):
     quote: QuoteSearchAPIResponse | None = None
 
 
+class QuoteFareChoice(BaseModel):
+    rank: int = Field(ge=1)
+    fare_index: int = Field(ge=0)
+
+
+class QuoteFareSelection(QuoteFareChoice):
+    fare: CommercialFare
+
+
 class StoredQuoteSummary(BaseModel):
     quote_id: str
     created_at: str
@@ -284,6 +294,7 @@ class StoredQuoteRecord(BaseModel):
     updated_at: str
     status: str
     selected_ranks: list[int] = Field(default_factory=list)
+    selected_fares: list[QuoteFareSelection] = Field(default_factory=list)
     source: str
     client_name: str | None = None
     client_reference: str | None = None
@@ -299,6 +310,7 @@ class StoredQuoteRecord(BaseModel):
 
 class QuoteSelectionRequest(BaseModel):
     ranks: list[int] = Field(min_length=1, max_length=10, examples=[[1]])
+    fares: list[QuoteFareChoice] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_unique_positive_ranks(self) -> "QuoteSelectionRequest":
@@ -306,7 +318,22 @@ class QuoteSelectionRequest(BaseModel):
             raise ValueError("Todos los ranks deben ser mayores o iguales a 1.")
         if len(set(self.ranks)) != len(self.ranks):
             raise ValueError("No se pueden seleccionar ranks repetidos.")
+
+        fare_ranks = [item.rank for item in self.fares]
+        if len(set(fare_ranks)) != len(fare_ranks):
+            raise ValueError(
+                "No se pueden seleccionar dos tarifas para la misma opción."
+            )
+
+        rank_set = set(self.ranks)
+        if any(rank not in rank_set for rank in fare_ranks):
+            raise ValueError(
+                "Las tarifas seleccionadas deben pertenecer a una opción "
+                "incluida en ranks."
+            )
+
         self.ranks = sorted(self.ranks)
+        self.fares = sorted(self.fares, key=lambda item: item.rank)
         return self
 
 
@@ -315,6 +342,7 @@ class QuoteSelectionResponse(BaseModel):
     status: str
     selected_ranks: list[int]
     selected_count: int
+    selected_fares: list[QuoteFareSelection] = Field(default_factory=list)
 
 
 class QuoteRenderResponse(BaseModel):

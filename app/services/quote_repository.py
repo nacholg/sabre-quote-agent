@@ -12,13 +12,15 @@ from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.database import database_url as configured_database_url
-from app.db.models import QuoteArtifactRow, QuoteRow
+from app.db.models import QuoteArtifactRow, QuoteFareSelectionRow, QuoteRow
 from app.models.api import (
     AgentInterpretation,
     QuoteSearchAPIRequest,
     QuoteSearchAPIResponse,
     StoredQuoteRecord,
     StoredQuoteSummary,
+    QuoteFareChoice,
+    QuoteFareSelection,
     QuoteSelectionResponse,
     QuoteWorkflowResponse,
     QuoteVersionHistory,
@@ -27,6 +29,7 @@ from app.models.api import (
 
 
 QUOTE_TABLE = QuoteRow.__table__
+FARE_SELECTION_TABLE = QuoteFareSelectionRow.__table__
 ARTIFACT_TABLE = QuoteArtifactRow.__table__
 
 
@@ -133,7 +136,11 @@ class QuoteRepository:
         inspector = inspect(self.engine)
         missing = [
             table_name
-            for table_name in ("quotes", "quote_artifacts")
+            for table_name in (
+                "quotes",
+                "quote_artifacts",
+                "quote_fare_selections",
+            )
             if not inspector.has_table(table_name)
         ]
         if missing:
@@ -236,6 +243,32 @@ class QuoteRepository:
         if result.rowcount == 0:
             raise KeyError(quote_id)
 
+    def _selected_fares(
+        self,
+        quote_id: str,
+    ) -> list[QuoteFareSelection]:
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    select(FARE_SELECTION_TABLE)
+                    .where(
+                        FARE_SELECTION_TABLE.c.quote_id == quote_id
+                    )
+                    .order_by(FARE_SELECTION_TABLE.c.rank.asc())
+                )
+                .mappings()
+                .all()
+            )
+
+        return [
+            QuoteFareSelection(
+                rank=int(row["rank"]),
+                fare_index=int(row["fare_index"]),
+                fare=json.loads(row["fare_json"]),
+            )
+            for row in rows
+        ]
+
     def get(self, quote_id: str) -> StoredQuoteRecord | None:
         with self.engine.connect() as connection:
             row = (
@@ -259,6 +292,7 @@ class QuoteRepository:
             selected_ranks=json.loads(
                 row["selected_ranks_json"] or "[]"
             ),
+            selected_fares=self._selected_fares(quote_id),
             source=row["source"],
             client_name=row["client_name"],
             client_reference=row["client_reference"],
@@ -413,10 +447,68 @@ class QuoteRepository:
 
         return record
 
+    def _resolve_fare_choices(
+        self,
+        record: StoredQuoteRecord,
+        ranks: list[int],
+        choices: list[QuoteFareChoice] | None,
+    ) -> list[QuoteFareSelection]:
+        if not choices:
+            return []
+
+        # Resolve the fare from the canonical server-side CommercialQuote.
+        # The client only sends rank + index; prices/rules are never trusted.
+        from app.services.commercial_quote_builder import build_commercial_quote
+
+        commercial = build_commercial_quote(
+            record,
+            selected_only=False,
+            offset=0,
+            limit=50,
+        )
+        options_by_rank = {
+            int(option.rank): option
+            for option in commercial.options
+        }
+
+        selected: list[QuoteFareSelection] = []
+        rank_set = set(ranks)
+
+        for choice in choices:
+            if choice.rank not in rank_set:
+                raise ValueError(
+                    f"La tarifa de la opción {choice.rank} no pertenece "
+                    "a la selección."
+                )
+
+            option = options_by_rank.get(choice.rank)
+            if option is None:
+                raise ValueError(
+                    "Opción inexistente para tarifa seleccionada: "
+                    f"{choice.rank}"
+                )
+
+            if choice.fare_index >= len(option.fares):
+                raise ValueError(
+                    f"Tarifa inexistente para la opción {choice.rank}: "
+                    f"índice {choice.fare_index}"
+                )
+
+            selected.append(
+                QuoteFareSelection(
+                    rank=choice.rank,
+                    fare_index=choice.fare_index,
+                    fare=option.fares[choice.fare_index],
+                )
+            )
+
+        return sorted(selected, key=lambda item: item.rank)
+
     def select(
         self,
         quote_id: str,
         ranks: list[int],
+        fares: list[QuoteFareChoice] | None = None,
     ) -> QuoteSelectionResponse:
         record = self.assert_latest(quote_id)
 
@@ -446,9 +538,34 @@ class QuoteRepository:
             )
 
         normalized = sorted(set(ranks))
+        selected_fares = self._resolve_fare_choices(
+            record,
+            normalized,
+            fares,
+        )
         now = _utc_now()
 
         with self.engine.begin() as connection:
+            connection.execute(
+                delete(FARE_SELECTION_TABLE).where(
+                    FARE_SELECTION_TABLE.c.quote_id == quote_id
+                )
+            )
+
+            for selection in selected_fares:
+                connection.execute(
+                    insert(FARE_SELECTION_TABLE).values(
+                        quote_id=quote_id,
+                        rank=selection.rank,
+                        fare_index=selection.fare_index,
+                        fare_json=json.dumps(
+                            selection.fare.model_dump(mode="json"),
+                            ensure_ascii=False,
+                        ),
+                        selected_at=now,
+                    )
+                )
+
             connection.execute(
                 update(QUOTE_TABLE)
                 .where(
@@ -468,6 +585,7 @@ class QuoteRepository:
             status="selected",
             selected_ranks=normalized,
             selected_count=len(normalized),
+            selected_fares=selected_fares,
         )
 
     def clear_selection(
@@ -479,6 +597,11 @@ class QuoteRepository:
         now = _utc_now()
 
         with self.engine.begin() as connection:
+            connection.execute(
+                delete(FARE_SELECTION_TABLE).where(
+                    FARE_SELECTION_TABLE.c.quote_id == quote_id
+                )
+            )
             connection.execute(
                 update(QUOTE_TABLE)
                 .where(
@@ -496,6 +619,7 @@ class QuoteRepository:
             status="active",
             selected_ranks=[],
             selected_count=0,
+            selected_fares=[],
         )
 
     def update_workflow(

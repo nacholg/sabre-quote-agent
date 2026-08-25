@@ -378,6 +378,11 @@ def build_commercial_quote(
         record.search_request
     )
 
+    selected_fare_indexes = {
+        int(selection.rank): int(selection.fare_index)
+        for selection in record.selected_fares
+    }
+
     options: list[CommercialOption] = []
 
     for item in items:
@@ -392,6 +397,20 @@ def build_commercial_quote(
                 item.get("commercial_labels") or []
             )
         ]
+
+        fare_candidates = _commercial_fares(
+            itinerary,
+            requested_cabins=requested_cabins,
+        )
+
+        if selected_only and rank in selected_fare_indexes:
+            fare_index = selected_fare_indexes[rank]
+            if fare_index >= len(fare_candidates):
+                raise ValueError(
+                    "La tarifa seleccionada ya no existe para la opción "
+                    f"{rank}."
+                )
+            fare_candidates = [fare_candidates[fare_index]]
 
         options.append(
             CommercialOption(
@@ -412,10 +431,7 @@ def build_commercial_quote(
                         fare,
                         summaries,
                     )
-                    for fare in _commercial_fares(
-                        itinerary,
-                        requested_cabins=requested_cabins,
-                    )
+                    for fare in fare_candidates
                 ],
             )
         )

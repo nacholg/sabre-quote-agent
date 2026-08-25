@@ -36,6 +36,16 @@ class QuoteRow(Base):
     )
 
 
+class QuoteFareSelectionRow(Base):
+    __tablename__ = "quote_fare_selections"
+
+    quote_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    rank: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fare_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    fare_json: Mapped[str] = mapped_column(Text, nullable=False)
+    selected_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class QuoteArtifactRow(Base):
     __tablename__ = "quote_artifacts"
 
