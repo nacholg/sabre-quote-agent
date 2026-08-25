@@ -87,5 +87,7 @@ def test_v029b_results_use_one_primary_merit_badge():
 
 def test_v029b_results_group_segments_by_requested_legs():
     assert "groupResultSegmentsByLeg(segments,legs)" in HTML
-    assert "currentCommercialQuote?.legs||[]" in HTML
+    assert "function resultRequestedLegs()" in HTML
+    assert "currentCommercialQuote?.legs" in HTML
+    assert "request.legs" in HTML
     assert "renderResultLegs(segmentList)" in HTML

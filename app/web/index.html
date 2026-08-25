@@ -788,6 +788,500 @@
   @media(max-width:1350px){.results-table-shell{overflow-x:auto}#options{overflow-x:visible}}
 </style>
 
+
+<style id="patagonik-v029c-polish">
+  /* Sidebar: recent history should support the task, not dominate it. */
+  aside{
+    width:100%;
+  }
+  .history-count{
+    display:none;
+  }
+  .history-item{
+    margin:8px 0;
+    padding:11px 30px 11px 12px;
+    border-radius:12px;
+    box-shadow:none;
+  }
+  .history-item strong{
+    font-size:12px;
+    color:var(--pt-navy);
+  }
+  .history-item div{
+    font-size:11px;
+    line-height:1.3;
+    margin-top:3px;
+  }
+  .history-item div:last-child{
+    font-size:10px;
+    opacity:.72;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .history-compact-hidden{
+    display:none!important;
+  }
+  .history-toggle{
+    width:100%;
+    min-height:38px;
+    margin-top:9px;
+    border:1px solid var(--pt-line);
+    border-radius:10px;
+    background:#fff;
+    color:#35618b;
+    font-size:11px;
+    font-weight:800;
+    box-shadow:none;
+  }
+  .history-toggle:hover{
+    background:#f8fcff;
+    border-color:#b8d9ec;
+  }
+
+  /* Interpretation: restore the deliberate card layout from the design target. */
+  #interpretation{
+    margin-top:18px;
+  }
+  #interpretation .interpret-heading{
+    margin:0 0 12px;
+    color:var(--pt-navy);
+    font-size:19px;
+    font-weight:850;
+    letter-spacing:-.01em;
+  }
+  #interpretation .interpret{
+    display:grid;
+    grid-template-columns:repeat(8,minmax(0,1fr));
+    gap:10px;
+    margin-top:0;
+  }
+  #interpretation .chip{
+    min-height:112px;
+    padding:14px 14px;
+    border:1px solid #d5e2ed;
+    border-radius:13px;
+    background:linear-gradient(180deg,#ffffff 0%,#f9fbfd 100%);
+    color:#536174;
+    font-size:13px;
+    line-height:1.38;
+    box-shadow:0 2px 8px rgba(15,39,66,.025);
+  }
+  #interpretation .chip strong{
+    display:block;
+    margin-bottom:7px;
+    color:var(--pt-navy);
+    font-size:12px;
+    font-weight:850;
+  }
+  #interpretation .chip strong + br{
+    display:none;
+  }
+  #interpretation .status{
+    margin-top:10px;
+  }
+
+  /* Results: fit the full comparison table inside a normal desktop workspace. */
+  .results-table-shell{
+    width:100%;
+    max-width:100%;
+    overflow:hidden;
+  }
+  .results-table-header,
+  .result-row-grid{
+    width:100%;
+    min-width:0;
+    grid-template-columns:
+      118px
+      minmax(170px,1.4fr)
+      minmax(115px,.82fr)
+      82px
+      90px
+      110px
+      102px
+      minmax(145px,1fr)
+      145px;
+  }
+  #options{
+    width:100%;
+    max-width:100%;
+    overflow-x:visible;
+  }
+  #options .option-card{
+    width:100%;
+    min-width:0;
+  }
+  .option-details{
+    min-width:0;
+    width:100%;
+  }
+  .results-table-header > div,
+  .result-cell{
+    padding-left:10px;
+    padding-right:10px;
+  }
+  .result-price{
+    font-size:17px;
+    white-space:nowrap;
+  }
+  .result-detail-button{
+    width:100%;
+    padding-left:7px;
+    padding-right:7px;
+  }
+  .result-main{
+    overflow-wrap:anywhere;
+  }
+  .result-sub{
+    overflow-wrap:anywhere;
+  }
+
+  @media(max-width:1380px){
+    #interpretation .interpret{
+      grid-template-columns:repeat(4,minmax(0,1fr));
+    }
+    #interpretation .chip{
+      min-height:94px;
+    }
+  }
+
+  @media(max-width:1220px){
+    .results-table-shell{
+      overflow-x:auto;
+    }
+    .results-table-header,
+    .result-row-grid{
+      min-width:1110px;
+    }
+    #options .option-card,
+    .option-details{
+      min-width:1110px;
+    }
+  }
+
+  @media(max-width:900px){
+    #interpretation .interpret{
+      grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+  }
+
+  @media(max-width:560px){
+    #interpretation .interpret{
+      grid-template-columns:1fr;
+    }
+  }
+</style>
+
+
+<style id="patagonik-v029c1-fare-choice">
+  /* Keep each flight segment on its own line inside expanded details. */
+  .option-details-body > .flight{
+    display:block!important;
+    width:100%;
+    margin:0!important;
+    padding:5px 0!important;
+    line-height:1.45;
+  }
+  .option-details-body > .flight + .flight{
+    margin-top:4px!important;
+  }
+
+  /* Fare cards are interactive views of the same itinerary. */
+  .option-details-body .fare{
+    cursor:pointer;
+    position:relative;
+    transition:
+      border-color 120ms ease,
+      background-color 120ms ease,
+      box-shadow 120ms ease,
+      transform 80ms ease;
+  }
+  .option-details-body .fare:hover{
+    border-color:#9fcde7;
+    background:#fbfeff;
+  }
+  .option-details-body .fare:focus-visible{
+    outline:3px solid rgba(45,156,219,.18);
+    outline-offset:2px;
+  }
+  .option-details-body .fare.fare-selected{
+    border-color:var(--pt-sky-strong);
+    background:linear-gradient(180deg,#f8fdff,#f3faff);
+    box-shadow:0 0 0 2px rgba(45,156,219,.10);
+  }
+  .option-details-body .fare.fare-selected::after{
+    content:"Mostrando";
+    position:absolute;
+    top:10px;
+    right:10px;
+    padding:4px 7px;
+    border-radius:999px;
+    background:var(--pt-sky-soft);
+    color:#17648d;
+    border:1px solid #bfe2f4;
+    font-size:9px;
+    font-weight:850;
+    letter-spacing:.02em;
+  }
+</style>
+
+
+<style id="patagonik-v029c2-flow">
+  /* Four-step flow: one visual language from request to follow-up. */
+  .flow-step-four{
+    display:grid;
+    grid-template-columns:minmax(0,1.55fr) minmax(330px,.95fr);
+    gap:14px;
+    margin-top:18px;
+  }
+  .flow-conversation-card,
+  .flow-actions-card{
+    min-width:0;
+    border:1px solid var(--pt-line);
+    border-radius:15px;
+    background:#fff;
+    overflow:hidden;
+  }
+  .flow-conversation-card{
+    background:linear-gradient(135deg,#f8fcff,#ffffff);
+    border-color:#cfe4f1;
+  }
+  .flow-actions-card{
+    padding:14px;
+  }
+  .flow-actions-title{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    margin-bottom:10px;
+  }
+  .flow-actions-title strong{
+    color:var(--pt-navy);
+    font-size:14px;
+  }
+  .flow-actions-title span{
+    color:var(--pt-muted);
+    font-size:10px;
+  }
+
+  .flow-step-four #modifyComposer{
+    margin:0!important;
+    padding:14px!important;
+    border:0!important;
+    border-radius:0!important;
+    background:transparent!important;
+    box-shadow:none!important;
+  }
+  .flow-step-four .modify-head{
+    margin-bottom:10px;
+  }
+  .flow-step-four .modify-head strong{
+    display:flex;
+    align-items:center;
+    gap:9px;
+    color:var(--pt-navy);
+    font-size:14px;
+  }
+  .flow-step-four .modify-head strong::before{
+    content:none!important;
+    display:none!important;
+  }
+  .flow-step-four .modify-head .muted{
+    font-size:10px;
+  }
+  .flow-step-four .modify-grid{
+    grid-template-columns:minmax(0,1fr) 148px;
+  }
+  .flow-step-four #modifyPrompt{
+    min-height:78px!important;
+  }
+  .flow-step-number{
+    display:inline-flex;
+    width:24px;
+    height:24px;
+    flex:0 0 24px;
+    align-items:center;
+    justify-content:center;
+    border-radius:999px;
+    background:linear-gradient(135deg,var(--pt-sky-strong),#267fbd);
+    color:#fff;
+    font-size:11px;
+    font-weight:900;
+    box-shadow:0 4px 10px rgba(45,156,219,.18);
+  }
+
+  /* Commercial actions: icon cards first, technical actions second. */
+  .flow-actions-card .quote-actions,
+  .flow-actions-card .actions{
+    margin:0;
+  }
+  .flow-primary-actions{
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:9px;
+  }
+  .flow-action-card{
+    min-height:88px;
+    padding:11px 8px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:7px;
+    text-align:center;
+    border:1px solid var(--pt-line)!important;
+    border-radius:12px!important;
+    background:#fbfdff!important;
+    color:var(--pt-navy)!important;
+    box-shadow:none!important;
+    font-size:10px!important;
+    line-height:1.2;
+  }
+  .flow-action-card:hover{
+    border-color:#b8d9eb!important;
+    background:#f7fcff!important;
+  }
+  .flow-action-card strong{
+    font-size:11px;
+    font-weight:850;
+  }
+  .flow-action-icon{
+    width:28px;
+    height:28px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:#316fa8;
+  }
+  .flow-action-icon svg{
+    width:27px;
+    height:27px;
+    display:block;
+  }
+  .flow-action-card.action-whatsapp .flow-action-icon{
+    color:#1f9d55;
+  }
+  .flow-action-card.action-email .flow-action-icon{
+    color:#3573d8;
+  }
+  .flow-action-card.action-sent .flow-action-icon{
+    color:#7657c8;
+  }
+  .flow-action-card.action-pdf .flow-action-icon{
+    color:#c33a4b;
+  }
+  .flow-secondary-actions{
+    display:flex;
+    flex-wrap:wrap;
+    gap:7px;
+    margin-top:10px;
+    padding-top:10px;
+    border-top:1px solid var(--pt-line);
+  }
+  .flow-secondary-actions button{
+    min-height:34px;
+    padding:7px 10px!important;
+    border:1px solid var(--pt-line)!important;
+    border-radius:9px!important;
+    background:#fff!important;
+    color:#425466!important;
+    box-shadow:none!important;
+    font-size:10px!important;
+    font-weight:750!important;
+  }
+  .flow-secondary-actions button.danger{
+    color:#a82438!important;
+    border-color:#f0c7ce!important;
+    background:#fff8f9!important;
+  }
+
+  /* Primary merit badge: compact enough to stay inside the option column. */
+  .result-option-cell{
+    overflow:hidden;
+  }
+  .primary-result-badge{
+    max-width:100%;
+    box-sizing:border-box;
+    padding:6px 9px!important;
+    font-size:10px!important;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap!important;
+  }
+
+  /* Interpretation: compact visual strip, like the target reference. */
+  #interpretation .interpret{
+    display:grid!important;
+    grid-template-columns:repeat(auto-fit,minmax(132px,1fr))!important;
+    gap:0!important;
+    border:1px solid #d9e5ee;
+    border-radius:13px;
+    overflow:hidden;
+    background:#fff;
+  }
+  #interpretation .chip{
+    min-height:84px!important;
+    padding:12px 11px!important;
+    border:0!important;
+    border-right:1px solid #e6edf3!important;
+    border-radius:0!important;
+    background:#fff!important;
+    box-shadow:none!important;
+  }
+  #interpretation .chip:last-child{
+    border-right:0!important;
+  }
+  .interpret-card-decorated{
+    display:grid!important;
+    grid-template-columns:28px minmax(0,1fr);
+    gap:8px;
+    align-items:start;
+  }
+  .interpret-icon{
+    width:27px;
+    height:27px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border:1px solid #dce9f3;
+    border-radius:9px;
+    background:#f8fcff;
+    color:#3d79b8;
+    font-size:14px;
+    font-weight:850;
+  }
+  .interpret-copy{
+    min-width:0;
+  }
+  .interpret-copy strong{
+    margin:0 0 4px!important;
+    font-size:10px!important;
+  }
+  .interpret-copy{
+    color:#566579;
+    font-size:11px;
+    line-height:1.35;
+  }
+
+  @media(max-width:1160px){
+    .flow-step-four{
+      grid-template-columns:1fr;
+    }
+    .flow-actions-card{
+      max-width:none;
+    }
+  }
+  @media(max-width:760px){
+    .flow-primary-actions{
+      grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+    .flow-step-four .modify-grid{
+      grid-template-columns:1fr;
+    }
+  }
+</style>
+
 </head>
 <body>
 <header class="app-header">
@@ -828,6 +1322,7 @@
       <div id="historyCount" class="history-count"></div>
     </div>
     <div id="history" class="muted" style="margin-top:10px">Cargando…</div>
+    <button id="historyToggleButton" class="history-toggle hidden" type="button" onclick="toggleHistoryExpanded()">Ver todo el historial</button>
   </aside>
 
   <main>
@@ -1135,6 +1630,286 @@ function startNewQuote(){
 }
 
 
+
+let historyExpanded = false;
+const historyCompactLimit = 4;
+
+function applyCompactHistoryView(){
+  const history=document.getElementById("history");
+  const toggle=document.getElementById("historyToggleButton");
+  if(!history || !toggle)return;
+
+  const items=[...history.querySelectorAll(".history-item")];
+  const query=(document.getElementById("historySearch")?.value||"").trim();
+  const compact=!query && !historyExpanded;
+  const visibleLimit=compact ? historyCompactLimit : items.length;
+
+  items.forEach((item,index)=>{
+    item.classList.toggle(
+      "history-compact-hidden",
+      index>=visibleLimit
+    );
+  });
+
+  const canToggle=!query && items.length>historyCompactLimit;
+  toggle.classList.toggle("hidden",!canToggle);
+  toggle.textContent=historyExpanded
+    ? "Mostrar sólo recientes"
+    : "Ver todo el historial";
+}
+
+function toggleHistoryExpanded(){
+  historyExpanded=!historyExpanded;
+  applyCompactHistoryView();
+}
+
+function installCompactHistoryObserver(){
+  const history=document.getElementById("history");
+  if(!history)return;
+
+  const observer=new MutationObserver(()=>{
+    applyCompactHistoryView();
+  });
+  observer.observe(history,{childList:true});
+
+  const search=document.getElementById("historySearch");
+  search?.addEventListener("input",()=>{
+    historyExpanded=false;
+    window.setTimeout(applyCompactHistoryView,0);
+  });
+
+  applyCompactHistoryView();
+}
+
+window.addEventListener(
+  "DOMContentLoaded",
+  installCompactHistoryObserver
+);
+
+
+
+function v029c2ActionIcon(kind){
+  const icons={
+    whatsapp:`<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M20 11.6a8 8 0 0 1-11.8 7L4 20l1.4-4A8 8 0 1 1 20 11.6Z" stroke="currentColor" stroke-width="1.8"/>
+      <path d="M9 8.5c.4 2.6 1.9 4.2 4.5 5l1.2-1.2 2 .9c-.2 1.1-1 1.9-2.1 2.1-4.2-.5-6.9-3.2-7.4-7.4.2-1.1 1-1.9 2.1-2.1l.9 2L9 8.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+    </svg>`,
+    email:`<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="3" y="5" width="18" height="14" rx="2.5" stroke="currentColor" stroke-width="1.8"/>
+      <path d="m4.5 7 7.5 6 7.5-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`,
+    sent:`<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="m3 11 18-8-6.6 18-3.2-7L3 11Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="m11.2 14 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+    </svg>`,
+    pdf:`<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M7 3h7l4 4v14H7V3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M14 3v5h5" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M9 15h6M9 18h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>`,
+  };
+  return icons[kind]||icons.sent;
+}
+
+function v029c2NormalizeButtonLabel(button){
+  return String(button?.textContent||"")
+    .replace(/\s+/g," ")
+    .trim()
+    .toLowerCase();
+}
+
+function decoratePrimaryAction(button,kind,lead,label){
+  if(!button || button.dataset.flowDecorated==="1")return;
+  button.dataset.flowDecorated="1";
+  button.classList.add("flow-action-card",`action-${kind}`);
+  button.innerHTML=`
+    <span class="flow-action-icon">${v029c2ActionIcon(kind)}</span>
+    <span>${lead}<br><strong>${label}</strong></span>
+  `;
+}
+
+function installV029c2FourStepFlow(){
+  const quoteSection=document.getElementById("quoteSection");
+  const modify=document.getElementById("modifyComposer");
+  const moreOptions=document.getElementById("moreOptions");
+  const resultsTable=quoteSection?.querySelector(".results-table-shell");
+
+  if(!quoteSection || !modify || (!moreOptions && !resultsTable))return;
+
+  let flow=quoteSection.querySelector(".flow-step-four");
+  if(!flow){
+    flow=document.createElement("div");
+    flow.className="flow-step-four";
+    flow.innerHTML=`
+      <section class="flow-conversation-card"></section>
+      <section class="flow-actions-card">
+        <div class="flow-actions-title">
+          <strong>Acciones</strong>
+          <span>Compartir y gestionar</span>
+        </div>
+        <div class="flow-primary-actions"></div>
+        <div class="flow-secondary-actions"></div>
+      </section>
+    `;
+
+    const anchor=moreOptions||resultsTable;
+    anchor.insertAdjacentElement("afterend",flow);
+  }
+
+  const conversation=flow.querySelector(".flow-conversation-card");
+  if(modify.parentElement!==conversation){
+    conversation.appendChild(modify);
+  }
+
+  const modifyStrong=modify.querySelector(".modify-head strong")
+    || modify.querySelector("strong");
+  if(modifyStrong && !modifyStrong.querySelector(".flow-step-number")){
+    modifyStrong.innerHTML=`
+      <span class="flow-step-number">4</span>
+      <span>Continuá la conversación</span>
+    `;
+  }
+
+  const helper=modify.querySelector(".modify-head .muted");
+  const helperText="Cada cambio crea una nueva versión";
+  if(helper && helper.textContent!==helperText){
+    helper.textContent=helperText;
+  }
+
+  const actionBar=[...quoteSection.querySelectorAll(".quote-actions,.actions")]
+    .find(el=>{
+      const text=(el.textContent||"").toLowerCase();
+      return text.includes("whatsapp") && text.includes("email");
+    });
+
+  if(!actionBar)return;
+
+  const primary=flow.querySelector(".flow-primary-actions");
+  const secondary=flow.querySelector(".flow-secondary-actions");
+
+  [...actionBar.querySelectorAll("button")].forEach(button=>{
+    const label=v029c2NormalizeButtonLabel(button);
+
+    if(label.includes("whatsapp")){
+      primary.appendChild(button);
+      decoratePrimaryAction(
+        button,"whatsapp","Enviar por","WhatsApp"
+      );
+      return;
+    }
+
+    if(label==="email" || label.includes(" email")){
+      primary.appendChild(button);
+      decoratePrimaryAction(
+        button,"email","Enviar por","Email"
+      );
+      return;
+    }
+
+    if(label.includes("marcar enviada")){
+      primary.appendChild(button);
+      decoratePrimaryAction(
+        button,"sent","Marcar como","enviada"
+      );
+      return;
+    }
+
+    if(label.includes("pdf")){
+      primary.appendChild(button);
+      decoratePrimaryAction(
+        button,"pdf","Descargar","PDF"
+      );
+      return;
+    }
+
+    secondary.appendChild(button);
+  });
+
+  actionBar.classList.add("hidden");
+}
+
+function v029c2InterpretIcon(label){
+  const value=String(label||"").toLowerCase();
+  if(value.includes("itinerario"))return "↔";
+  if(value.includes("pasaj"))return "♙";
+  if(value.includes("cabina"))return "◉";
+  if(value.includes("direct")||value.includes("parada"))return "⌁";
+  if(value.includes("aerol"))return "✈";
+  if(value.includes("moneda"))return "$";
+  if(value.includes("tarifa"))return "≡";
+  if(value.includes("exclu"))return "−";
+  if(value.includes("horario"))return "◷";
+  return "·";
+}
+
+function decorateInterpretationCards(){
+  const interpretation=document.getElementById("interpretation");
+  if(!interpretation)return;
+
+  interpretation.querySelectorAll(".interpret .chip").forEach(chip=>{
+    if(chip.classList.contains("interpret-card-decorated"))return;
+
+    const strong=chip.querySelector("strong");
+    const label=strong?.textContent||"";
+    const nodes=[...chip.childNodes];
+
+    const copy=document.createElement("div");
+    copy.className="interpret-copy";
+    nodes.forEach(node=>copy.appendChild(node));
+
+    const icon=document.createElement("span");
+    icon.className="interpret-icon";
+    icon.setAttribute("aria-hidden","true");
+    icon.textContent=v029c2InterpretIcon(label);
+
+    chip.classList.add("interpret-card-decorated");
+    chip.append(icon,copy);
+  });
+}
+
+function installV029c2Observers(){
+  installV029c2FourStepFlow();
+  decorateInterpretationCards();
+
+  const quoteSection=document.getElementById("quoteSection");
+  if(quoteSection){
+    let flowUpdateScheduled=false;
+    const quoteObserver=new MutationObserver(()=>{
+      if(flowUpdateScheduled)return;
+      flowUpdateScheduled=true;
+      window.requestAnimationFrame(()=>{
+        flowUpdateScheduled=false;
+        installV029c2FourStepFlow();
+      });
+    });
+    quoteObserver.observe(
+      quoteSection,
+      {childList:true,subtree:true}
+    );
+  }
+
+  const interpretation=document.getElementById("interpretation");
+  if(interpretation){
+    const interpretationObserver=new MutationObserver(()=>{
+      decorateInterpretationCards();
+    });
+    interpretationObserver.observe(
+      interpretation,
+      {childList:true,subtree:true}
+    );
+  }
+}
+
+if(document.readyState==="loading"){
+  window.addEventListener(
+    "DOMContentLoaded",
+    installV029c2Observers
+  );
+}else{
+  installV029c2Observers();
+}
+
+
 let currentQuote = null;
 let currentCommercialQuote = null;
 let currentQuoteId = null;
@@ -1222,21 +1997,82 @@ function resultDateTimeParts(value){
   return {date:`${Number(m[3])} ${months[Number(m[2])-1]||m[2]}`,time:`${m[4]}:${m[5]}`};
 }
 
+
+function resultRequestedLegs(){
+  const commercial=Array.isArray(currentCommercialQuote?.legs)
+    ? currentCommercialQuote.legs
+    : [];
+  if(commercial.length)return commercial;
+
+  const request=currentQuote?.search_request||{};
+  const requestLegs=Array.isArray(request.legs)?request.legs:[];
+  if(requestLegs.length)return requestLegs;
+
+  const result=[];
+  if(request.origin && request.destination && request.departure_date){
+    result.push({
+      origin:request.origin,
+      destination:request.destination,
+      departure_date:request.departure_date,
+    });
+    if(request.return_date){
+      result.push({
+        origin:request.destination,
+        destination:request.origin,
+        departure_date:request.return_date,
+      });
+    }
+  }
+  return result;
+}
+
+function resultSegmentDate(segment){
+  const value=String(segment?.departure_at||"");
+  return value.length>=10?value.slice(0,10):"";
+}
+
 function groupResultSegmentsByLeg(segments,legs){
   const source=Array.isArray(segments)?segments:[];
-  const requested=Array.isArray(legs)?legs:[];
+  const requested=Array.isArray(legs)&&legs.length
+    ? legs
+    : resultRequestedLegs();
+
   if(!source.length)return [];
   if(!requested.length)return [source];
 
   const groups=[];
   let cursor=0;
-  requested.forEach(leg=>{
+
+  requested.forEach((leg,index)=>{
     const group=[];
+    const nextDate=String(
+      requested[index+1]?.departure_date||""
+    ).slice(0,10);
+
     while(cursor<source.length){
-      const segment=source[cursor++];
+      const segment=source[cursor];
+      const segmentDate=resultSegmentDate(segment);
+
+      if(
+        group.length &&
+        nextDate &&
+        segmentDate &&
+        segmentDate>=nextDate
+      ){
+        break;
+      }
+
       group.push(segment);
-      if(segment.arrival_airport===leg.destination)break;
+      cursor+=1;
+
+      if(
+        leg?.destination &&
+        segment?.arrival_airport===leg.destination
+      ){
+        break;
+      }
     }
+
     if(group.length)groups.push(group);
   });
 
@@ -1245,25 +2081,34 @@ function groupResultSegmentsByLeg(segments,legs){
     if(groups.length)groups[groups.length-1].push(...remainder);
     else groups.push(remainder);
   }
+
   return groups.length?groups:[source];
 }
 
 function renderResultLegs(segments){
-  const groups=groupResultSegmentsByLeg(segments,currentCommercialQuote?.legs||[]);
-  return groups.map(group=>{
+  const requested=resultRequestedLegs();
+  const groups=groupResultSegmentsByLeg(segments,requested);
+
+  return groups.map((group,index)=>{
     const first=group[0]||{};
     const last=group[group.length-1]||{};
+    const requestedLeg=requested[index]||{};
     const departure=resultDateTimeParts(first.departure_at);
     const arrival=resultDateTimeParts(last.arrival_at);
     const arrivalDisplay=arrival.date&&arrival.date!==departure.date
       ? `${arrival.date} · ${arrival.time}`
       : arrival.time;
+
+    const origin=requestedLeg.origin||first.departure_airport||"—";
+    const destination=requestedLeg.destination||last.arrival_airport||"—";
+
     return `<div class="result-leg">
-      <div class="result-leg-route">${esc(first.departure_airport||"—")} → ${esc(last.arrival_airport||"—")}</div>
+      <div class="result-leg-route">${esc(origin)} → ${esc(destination)}</div>
       <div class="result-leg-time">${esc(departure.date)} · ${esc(departure.time)} → ${esc(arrivalDisplay)}</div>
     </div>`;
   }).join("");
 }
+
 
 function formatResultDuration(minutes){
   const value=Number(minutes);
@@ -1273,21 +2118,40 @@ function formatResultDuration(minutes){
   return mins?`${hours}h ${mins}m`:`${hours}h`;
 }
 
+
 function resultStopMeta(segments){
-  const groups=groupResultSegmentsByLeg(segments,currentCommercialQuote?.legs||[]);
+  const groups=groupResultSegmentsByLeg(
+    segments,
+    resultRequestedLegs()
+  );
   const counts=groups.map(group=>Math.max(0,group.length-1));
   if(counts.length&&counts.every(count=>count===0)){
-    return {main:"Directo",sub:counts.length>1?"Todos los tramos":"Sin escalas",className:"direct"};
+    return {
+      main:"Directo",
+      sub:counts.length>1?"Todos los tramos":"Sin escalas",
+      className:"direct",
+    };
   }
+
   const total=counts.reduce((sum,count)=>sum+count,0);
   const connectionAirports=[];
   groups.forEach(group=>{
     group.slice(0,-1).forEach(segment=>{
-      if(segment.arrival_airport)connectionAirports.push(segment.arrival_airport);
+      if(segment.arrival_airport){
+        connectionAirports.push(segment.arrival_airport);
+      }
     });
   });
-  return {main:`${total} escala${total===1?"":"s"}`,sub:connectionAirports.length?[...new Set(connectionAirports)].join(" · "):"Con conexión",className:"connection"};
+
+  return {
+    main:`${total} escala${total===1?"":"s"}`,
+    sub:connectionAirports.length
+      ? [...new Set(connectionAirports)].join(" · ")
+      : "Con conexión",
+    className:"connection",
+  };
 }
+
 
 function resultCabinLabel(value){
   const text=String(value||"").toUpperCase();
@@ -1327,6 +2191,166 @@ function currentResultPassengerCount(){
   }
   return Math.max(1,Number(request.adults||0)+Number(request.children||0)+Number(request.infants||0));
 }
+
+
+const selectedFareIndexByRank=new Map();
+let selectedFareQuoteId=null;
+
+function ensureFareChoiceQuote(){
+  const quoteId=currentCommercialQuote?.quote_id||null;
+  if(selectedFareQuoteId!==quoteId){
+    selectedFareIndexByRank.clear();
+    selectedFareQuoteId=quoteId;
+  }
+}
+
+function resultOptionByRank(rank){
+  const options=Array.isArray(currentCommercialQuote?.options)
+    ? currentCommercialQuote.options
+    : [];
+  return options.find(
+    option=>Number(option.rank)===Number(rank)
+  )||null;
+}
+
+function resultDefaultFareIndex(option){
+  const fares=Array.isArray(option?.fares)?option.fares:[];
+  if(!fares.length)return -1;
+
+  let bestIndex=0;
+  let bestPrice=Number.POSITIVE_INFINITY;
+  fares.forEach((fare,index)=>{
+    const raw=fare?.total_price??fare?.price_per_passenger;
+    const price=Number(raw);
+    if(Number.isFinite(price)&&price<bestPrice){
+      bestPrice=price;
+      bestIndex=index;
+    }
+  });
+  return bestIndex;
+}
+
+function updateResultFareSummary(rank,fareIndex){
+  const option=resultOptionByRank(rank);
+  if(!option)return;
+
+  const fares=Array.isArray(option.fares)?option.fares:[];
+  const fare=fares[fareIndex];
+  if(!fare)return;
+
+  const card=document.querySelector(
+    `.option-card[data-option-rank="${Number(rank)}"]`
+  );
+  if(!card)return;
+
+  const price=fare.total_price??fare.price_per_passenger;
+  const baggage=compactBaggageText(fare?.rules?.baggage);
+  const changes=compactRuleValue(fare?.rules?.changes,"change");
+  const refunds=compactRuleValue(fare?.rules?.refunds,"refund");
+  const fareName=fare.brand_name||fare.brand_code||fare.cabin||"Tarifa";
+
+  const priceNode=card.querySelector(".result-price");
+  if(priceNode){
+    priceNode.textContent=money(price,fare.currency||"");
+  }
+
+  const fareNameNode=card.querySelector(".result-fare-name");
+  if(fareNameNode){
+    fareNameNode.textContent=fareName;
+  }
+
+  const cabinNode=card.querySelector(".result-fare-cabin");
+  if(cabinNode){
+    cabinNode.textContent=resultCabinLabel(fare.cabin);
+  }
+
+  const baggageMain=card.querySelector(".result-baggage-main");
+  if(baggageMain){
+    baggageMain.textContent=baggage.main;
+  }
+
+  const baggageSub=card.querySelector(".result-baggage-sub");
+  if(baggageSub){
+    baggageSub.textContent=baggage.sub||"";
+    baggageSub.classList.toggle("hidden",!baggage.sub);
+  }
+
+  const changesNode=card.querySelector(".result-changes-value");
+  if(changesNode){
+    changesNode.textContent=changes;
+  }
+
+  const refundsNode=card.querySelector(".result-refunds-value");
+  if(refundsNode){
+    refundsNode.textContent=refunds;
+  }
+
+  [...card.querySelectorAll(".fare")].forEach((fareCard,index)=>{
+    fareCard.classList.toggle("fare-selected",index===fareIndex);
+    fareCard.setAttribute(
+      "aria-pressed",
+      index===fareIndex?"true":"false"
+    );
+  });
+}
+
+function selectFareForResult(rank,fareIndex){
+  const option=resultOptionByRank(rank);
+  const fares=Array.isArray(option?.fares)?option.fares:[];
+  if(!fares[fareIndex])return;
+
+  selectedFareIndexByRank.set(Number(rank),fareIndex);
+  updateResultFareSummary(rank,fareIndex);
+}
+
+function installFareChoiceInteractions(options){
+  ensureFareChoiceQuote();
+
+  (Array.isArray(options)?options:[]).forEach(option=>{
+    const rank=Number(option.rank);
+    const card=document.querySelector(
+      `.option-card[data-option-rank="${rank}"]`
+    );
+    if(!card)return;
+
+    const fareCards=[...card.querySelectorAll(".fare")];
+    if(!fareCards.length)return;
+
+    let selectedIndex=selectedFareIndexByRank.get(rank);
+    if(
+      !Number.isInteger(selectedIndex) ||
+      !option.fares?.[selectedIndex]
+    ){
+      selectedIndex=resultDefaultFareIndex(option);
+      selectedFareIndexByRank.set(rank,selectedIndex);
+    }
+
+    fareCards.forEach((fareCard,index)=>{
+      fareCard.setAttribute("role","button");
+      fareCard.setAttribute("tabindex","0");
+      fareCard.setAttribute(
+        "aria-label",
+        `Mostrar tarifa ${index+1} en el resumen`
+      );
+
+      const choose=event=>{
+        if(event?.target?.closest("button,a,input,label"))return;
+        selectFareForResult(rank,index);
+      };
+
+      fareCard.onclick=choose;
+      fareCard.onkeydown=event=>{
+        if(event.key==="Enter"||event.key===" "){
+          event.preventDefault();
+          choose(event);
+        }
+      };
+    });
+
+    updateResultFareSummary(rank,selectedIndex);
+  });
+}
+
 
 function toggleResultDetails(rank){
   const details=document.getElementById(`resultDetails-${rank}`);
@@ -2032,7 +3056,7 @@ function renderQuote(q,commercial=null){
     const refunds=compactRuleValue(cheapest?.rules?.refunds,"refund");
     const passengerCount=currentResultPassengerCount();
 
-    return `<div class="option-card">
+    return `<div class="option-card" data-option-rank="${item.rank}">
       <div class="result-row-grid ${badge?.key==="recommended"?"is-recommended":""}">
         <div class="result-cell result-option-cell">
           ${badge?`<span class="primary-result-badge ${badge.key}"><span aria-hidden="true">${badge.icon}</span>${badge.text}</span>`:""}
@@ -2056,18 +3080,18 @@ function renderQuote(q,commercial=null){
           <div class="result-sub">${esc(stopsMeta.sub)}</div>
         </div>
         <div class="result-cell">
-          <div class="result-main">${esc(fareLabel)}</div>
-          <div class="result-sub">${esc(cabinLabel)}</div>
+          <div class="result-main result-fare-name">${esc(fareLabel)}</div>
+          <div class="result-sub result-fare-cabin">${esc(cabinLabel)}</div>
         </div>
         <div class="result-cell">
-          <div class="result-main result-baggage-icon">${esc(baggage.main)}</div>
-          ${baggage.sub?`<div class="result-sub">${esc(baggage.sub)}</div>`:""}
+          <div class="result-main result-baggage-icon result-baggage-main">${esc(baggage.main)}</div>
+          <div class="result-sub result-baggage-sub ${baggage.sub?"":"hidden"}">${esc(baggage.sub||"")}</div>
         </div>
         <div class="result-cell">
           <div class="result-rule-label">Cambios</div>
-          <div class="result-rule-value">${esc(changes)}</div>
+          <div class="result-rule-value result-changes-value">${esc(changes)}</div>
           <div class="result-rule-label" style="margin-top:5px">Devolución</div>
-          <div class="result-rule-value">${esc(refunds)}</div>
+          <div class="result-rule-value result-refunds-value">${esc(refunds)}</div>
         </div>
         <div class="result-cell">
           <div class="result-price">${esc(priceValue)}</div>
@@ -2083,6 +3107,7 @@ function renderQuote(q,commercial=null){
 
   }).join("");
   renderMoreOptionsControl();
+  installFareChoiceInteractions(options);
   applyVersionMutability(currentVersionHistory);
 }
 function selectedRanks(){return [...document.querySelectorAll(".rank-check:checked")].map(x=>Number(x.value));}
