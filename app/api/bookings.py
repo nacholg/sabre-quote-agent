@@ -1,6 +1,17 @@
 from fastapi import APIRouter, HTTPException, status
 
-from app.models.booking import BookingCreateRequest, BookingRecord
+from app.models.booking import (
+    BookingCreateRequest,
+    BookingPassengersResponse,
+    BookingPassengersUpdateRequest,
+    BookingRecord,
+)
+from app.services.booking_passenger_service import (
+    BookingPassengerLockedError,
+    BookingPassengerValidationError,
+    BookingRevisionConflictError,
+    get_booking_passenger_service,
+)
 from app.services.booking_repository import (
     BookingIdempotencyConflictError,
     get_booking_repository,
@@ -67,3 +78,56 @@ async def get_booking(
             detail=f"Reserva no encontrada: {booking_id}",
         )
     return booking
+
+
+@router.get(
+    "/bookings/{booking_id}/passengers",
+    response_model=BookingPassengersResponse,
+    summary="Leer pasajeros del Booking",
+)
+async def get_booking_passengers(
+    booking_id: str,
+) -> BookingPassengersResponse:
+    try:
+        return get_booking_passenger_service().get(booking_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Reserva no encontrada: {booking_id}",
+        )
+
+
+@router.put(
+    "/bookings/{booking_id}/passengers",
+    response_model=BookingPassengersResponse,
+    summary="Guardar identidades de pasajeros",
+)
+async def update_booking_passengers(
+    booking_id: str,
+    request: BookingPassengersUpdateRequest,
+) -> BookingPassengersResponse:
+    try:
+        return get_booking_passenger_service().update(
+            booking_id,
+            request,
+        )
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Reserva no encontrada: {booking_id}",
+        )
+    except BookingRevisionConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+    except BookingPassengerLockedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+    except BookingPassengerValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc

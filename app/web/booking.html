@@ -75,23 +75,45 @@
           </div>
         </article>
 
-        <article class="panel">
+        <article class="panel passenger-panel">
           <div class="section-head">
             <div>
               <span class="eyebrow">Paso 1</span>
               <h2>Pasajeros</h2>
             </div>
-            <span class="dev-badge">Siguiente iteración</span>
+            <span id="passengerCompletionBadge" class="dev-badge">
+              Datos pendientes
+            </span>
           </div>
           <p class="muted">
-            La cantidad y el tipo de pasajeros ya quedaron fijados por la
-            cotización. En el próximo tramo del funnel se completarán sus
-            identidades sin permitir cambios en el mix tarifado.
+            La cantidad, tipo y edad tarifada de los pasajeros están fijados
+            por la cotización. Completá únicamente los datos de identidad.
           </p>
+
           <div id="passengerMix" class="passenger-mix"></div>
-          <button class="primary wide" type="button" disabled>
-            Continuar con pasajeros
-          </button>
+          <div id="passengerLoadStatus" class="message hidden"></div>
+
+          <form id="passengerForm" class="passenger-form" autocomplete="off">
+            <div id="passengerFields" class="passenger-fields"></div>
+
+            <div class="passenger-actions">
+              <button
+                id="savePassengersButton"
+                class="primary"
+                type="submit"
+              >
+                Guardar pasajeros
+              </button>
+              <button
+                id="continueContactButton"
+                class="secondary-action"
+                type="button"
+                disabled
+              >
+                Continuar con pasajeros
+              </button>
+            </div>
+          </form>
         </article>
       </section>
 
@@ -139,5 +161,6 @@
   </main>
 
   <script src="/app/assets/booking.js"></script>
+  <script src="/app/assets/booking-passengers.js"></script>
 </body>
 </html>

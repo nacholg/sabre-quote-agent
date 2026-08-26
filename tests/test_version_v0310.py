@@ -7,8 +7,8 @@ from app.main import app
 from app.version import __version__
 
 
-def test_runtime_version_is_v0311() -> None:
-    assert __version__ == "0.31.1"
+def test_runtime_version_is_v0312() -> None:
+    assert __version__ == "0.31.2"
     assert app.version == __version__
 
 

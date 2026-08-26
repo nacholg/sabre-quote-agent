@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from enum import StrEnum
 from typing import Literal
 from uuid import UUID
@@ -8,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.models.commercial_quote import CommercialFare
 from app.models.itinerary import FlightSegment
-from app.models.quote_request import PassengerSpec
+from app.models.quote_request import PassengerKind, PassengerSpec
 
 
 class BookingStatus(StrEnum):
@@ -83,3 +84,40 @@ class BookingRecord(BaseModel):
     updated_at: str
     abandoned_at: str | None = None
     accepted_offer_revision: BookingOfferRevision | None = None
+
+
+class BookingPassengerIdentityUpdate(BaseModel):
+    """Editable identity fields for one fixed passenger slot."""
+
+    slot_index: int = Field(ge=1)
+    given_name: str | None = Field(default=None, max_length=60)
+    middle_name: str | None = Field(default=None, max_length=60)
+    surname: str | None = Field(default=None, max_length=60)
+    date_of_birth: date | None = None
+    gender: Literal["M", "F", "X"] | None = None
+    associated_adult_slot_index: int | None = Field(default=None, ge=1)
+
+
+class BookingPassengersUpdateRequest(BaseModel):
+    revision: int = Field(ge=1)
+    passengers: list[BookingPassengerIdentityUpdate] = Field(min_length=1)
+
+
+class BookingPassengerRecord(BaseModel):
+    slot_index: int = Field(ge=1)
+    passenger_type: PassengerKind
+    quoted_age: int | None = None
+    given_name: str | None = None
+    middle_name: str | None = None
+    surname: str | None = None
+    date_of_birth: date | None = None
+    gender: Literal["M", "F", "X"] | None = None
+    associated_adult_slot_index: int | None = None
+    complete: bool = False
+
+
+class BookingPassengersResponse(BaseModel):
+    booking_id: str
+    booking_revision: int = Field(ge=1)
+    complete: bool
+    passengers: list[BookingPassengerRecord]
