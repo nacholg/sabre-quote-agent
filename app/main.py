@@ -23,12 +23,15 @@ from app.services.reference_repository import get_reference_repository
 from app.services.quote_refresh import refresh_stored_quote
 from app.services.quote_modification import modify_stored_quote
 from app.services.booking_readiness import assess_booking_readiness
+from app.api.bookings import router as booking_router
+from app.version import __version__
 
 app = FastAPI(
     title="Sabre Quote Agent",
-    version="0.21.1",
+    version=__version__,
     description="API read-only para buscar, normalizar y presentar cotizaciones Sabre BFM.",
 )
+app.include_router(booking_router)
 
 
 WEB_INDEX = Path(__file__).resolve().parent / "web" / "index.html"
@@ -87,7 +90,7 @@ async def health() -> dict[str, object]:
     return {
         "status": "ok" if database["status"] == "ok" else "degraded",
         "service": "sabre-quote-agent",
-        "version": "0.21.1",
+        "version": __version__,
         "database": database,
     }
 

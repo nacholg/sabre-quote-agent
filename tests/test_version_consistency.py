@@ -1,17 +1,18 @@
-import re
+import tomllib
 from pathlib import Path
+
+from app.main import app
+from app.version import __version__
 
 
 def test_application_version_matches_project_version():
-    main = Path("app/main.py").read_text(encoding="utf-8")
-    pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
+    pyproject = tomllib.loads(
+        Path("pyproject.toml").read_text(encoding="utf-8")
+    )
 
-    project_version = re.search(
-        r'^version = "([^"]+)"$',
-        pyproject,
-        re.MULTILINE,
-    ).group(1)
-
-    assert f'version="{project_version}"' in main
-    assert f'"version": "{project_version}"' in main
-    assert project_version == "0.21.1"
+    assert __version__ == "0.31.0"
+    assert app.version == __version__
+    assert "version" in pyproject["project"]["dynamic"]
+    assert pyproject["tool"]["setuptools"]["dynamic"]["version"] == {
+        "attr": "app.version.__version__"
+    }
