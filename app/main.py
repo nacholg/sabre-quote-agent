@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import SabreEnvironmentMismatchError, runtime_environment_status
-from app.models.api import AgentQuoteRequest, AgentQuoteResponse, FareRuleAuditResponse, QuoteRenderResponse, QuoteSearchAPIRequest, QuoteSearchAPIResponse, QuoteSelectionRequest, QuoteSelectionResponse, StoredQuoteRecord, StoredQuoteSummary, QuoteWorkflowUpdate, QuoteWorkflowResponse, QuoteRefreshResponse
+from app.models.api import AgentQuoteRequest, AgentQuoteResponse, BookingDraftRecord, BookingDraftUpdate, BookingReadinessResponse, FareRuleAuditResponse, QuoteRenderResponse, QuoteSearchAPIRequest, QuoteSearchAPIResponse, QuoteSelectionRequest, QuoteSelectionResponse, StoredQuoteRecord, StoredQuoteSummary, QuoteWorkflowUpdate, QuoteWorkflowResponse, QuoteRefreshResponse
 from app.models.commercial_quote import CommercialQuote
 from app.models.api import QuoteArtifactCreate, QuoteArtifactRecord, QuoteVersionHistory
 from app.models.api import QuoteModificationRequest, QuoteModificationResponse
@@ -22,6 +22,7 @@ from app.services.fare_rule_response import prepare_fare_rule_response
 from app.services.reference_repository import get_reference_repository
 from app.services.quote_refresh import refresh_stored_quote
 from app.services.quote_modification import modify_stored_quote
+from app.services.booking_readiness import assess_booking_readiness
 
 app = FastAPI(
     title="Sabre Quote Agent",
@@ -323,6 +324,93 @@ async def clear_quote_selection(quote_id: str) -> QuoteSelectionResponse:
         raise HTTPException(status_code=404, detail=f"Cotización no encontrada: {quote_id}")
     except QuoteVersionConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get(
+    "/quotes/{quote_id}/booking-draft",
+    response_model=BookingDraftRecord,
+    summary="Leer borrador de reserva",
+)
+async def get_booking_draft(
+    quote_id: str,
+) -> BookingDraftRecord:
+    try:
+        return get_quote_repository().get_booking_draft(quote_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Cotización no encontrada: {quote_id}",
+        )
+
+
+@app.put(
+    "/quotes/{quote_id}/booking-draft",
+    response_model=BookingDraftRecord,
+    summary="Guardar datos previos a Create PNR",
+)
+async def save_booking_draft(
+    quote_id: str,
+    request: BookingDraftUpdate,
+) -> BookingDraftRecord:
+    try:
+        return get_quote_repository().save_booking_draft(
+            quote_id,
+            request,
+        )
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Cotización no encontrada: {quote_id}",
+        )
+    except QuoteVersionConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+
+
+@app.delete(
+    "/quotes/{quote_id}/booking-draft",
+    response_model=BookingDraftRecord,
+    summary="Eliminar borrador de reserva",
+)
+async def clear_booking_draft(
+    quote_id: str,
+) -> BookingDraftRecord:
+    try:
+        return get_quote_repository().clear_booking_draft(
+            quote_id
+        )
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Cotización no encontrada: {quote_id}",
+        )
+    except QuoteVersionConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+
+
+@app.get(
+    "/quotes/{quote_id}/booking-readiness",
+    response_model=BookingReadinessResponse,
+    summary="Validar si una cotización está lista para Create PNR",
+)
+async def booking_readiness(
+    quote_id: str,
+) -> BookingReadinessResponse:
+    repository = get_quote_repository()
+    record = repository.get(quote_id)
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Cotización no encontrada: {quote_id}",
+        )
+
+    draft = repository.get_booking_draft(quote_id)
+    return assess_booking_readiness(record, draft)
 
 
 @app.get("/quotes/{quote_id}/render", response_model=QuoteRenderResponse)

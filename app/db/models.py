@@ -46,6 +46,27 @@ class QuoteFareSelectionRow(Base):
     selected_at: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class QuoteBookingDraftRow(Base):
+    __tablename__ = "quote_booking_drafts"
+
+    quote_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    passengers_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="[]",
+        server_default="[]",
+    )
+    contact_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="{}",
+        server_default="{}",
+    )
+    received_from: Mapped[str | None] = mapped_column(Text, nullable=True)
+    remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class QuoteArtifactRow(Base):
     __tablename__ = "quote_artifacts"
 

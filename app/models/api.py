@@ -345,6 +345,90 @@ class QuoteSelectionResponse(BaseModel):
     selected_fares: list[QuoteFareSelection] = Field(default_factory=list)
 
 
+class BookingPassenger(BaseModel):
+    passenger_type: Literal["ADT", "CHD", "INF"] = "ADT"
+    given_name: str | None = Field(default=None, max_length=80)
+    surname: str | None = Field(default=None, max_length=80)
+    date_of_birth: date | None = None
+    gender: Literal["M", "F", "X", "U"] | None = None
+    associated_adult_index: int | None = Field(default=None, ge=0, le=8)
+
+    @model_validator(mode="after")
+    def normalize_booking_passenger(self) -> "BookingPassenger":
+        self.given_name = (
+            self.given_name.strip()
+            if self.given_name is not None
+            else None
+        ) or None
+        self.surname = (
+            self.surname.strip()
+            if self.surname is not None
+            else None
+        ) or None
+        return self
+
+
+class BookingContact(BaseModel):
+    name: str | None = Field(default=None, max_length=120)
+    email: str | None = Field(default=None, max_length=200)
+    phone: str | None = Field(default=None, max_length=50)
+
+    @model_validator(mode="after")
+    def normalize_booking_contact(self) -> "BookingContact":
+        for field_name in ("name", "email", "phone"):
+            value = getattr(self, field_name)
+            if value is not None:
+                setattr(self, field_name, value.strip() or None)
+        return self
+
+
+class BookingDraftUpdate(BaseModel):
+    passengers: list[BookingPassenger] = Field(
+        default_factory=list,
+        max_length=9,
+    )
+    contact: BookingContact = Field(default_factory=BookingContact)
+    received_from: str | None = Field(default=None, max_length=64)
+    remarks: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def normalize_booking_draft(self) -> "BookingDraftUpdate":
+        self.received_from = (
+            self.received_from.strip()
+            if self.received_from is not None
+            else None
+        ) or None
+        self.remarks = (
+            self.remarks.strip()
+            if self.remarks is not None
+            else None
+        ) or None
+        return self
+
+
+class BookingDraftRecord(BookingDraftUpdate):
+    quote_id: str
+    updated_at: str | None = None
+
+
+class BookingReadinessIssue(BaseModel):
+    code: str
+    message: str
+
+
+class BookingReadinessResponse(BaseModel):
+    quote_id: str
+    ready: bool
+    selected_rank: int | None = None
+    selected_fare: QuoteFareSelection | None = None
+    expected_passengers: dict[str, int] = Field(default_factory=dict)
+    provided_passengers: dict[str, int] = Field(default_factory=dict)
+    draft: BookingDraftRecord
+    blockers: list[BookingReadinessIssue] = Field(default_factory=list)
+    warnings: list[BookingReadinessIssue] = Field(default_factory=list)
+    requires_live_revalidation: bool = True
+
+
 class QuoteRenderResponse(BaseModel):
     quote_id: str
     format: Literal["whatsapp", "email"]

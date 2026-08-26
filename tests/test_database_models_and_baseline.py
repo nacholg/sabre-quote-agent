@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.db.models import QuoteArtifactRow, QuoteFareSelectionRow, QuoteRow
+from app.db.models import QuoteArtifactRow, QuoteBookingDraftRow, QuoteFareSelectionRow, QuoteRow
 
 
 def test_quote_model_matches_real_sqlite_columns():
@@ -31,6 +31,17 @@ def test_fare_selection_model_columns():
         "fare_index",
         "fare_json",
         "selected_at",
+    ]
+
+
+def test_booking_draft_model_columns():
+    assert [c.name for c in QuoteBookingDraftRow.__table__.columns] == [
+        "quote_id",
+        "passengers_json",
+        "contact_json",
+        "received_from",
+        "remarks",
+        "updated_at",
     ]
 
 
@@ -66,4 +77,7 @@ def test_alembic_files_exist():
     ).exists()
     assert Path(
         "alembic/versions/20260825_02_quote_fare_selections.py"
+    ).exists()
+    assert Path(
+        "alembic/versions/20260826_03_booking_drafts.py"
     ).exists()
