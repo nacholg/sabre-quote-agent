@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import SabreEnvironmentMismatchError, runtime_environment_status
@@ -34,7 +35,16 @@ app = FastAPI(
 app.include_router(booking_router)
 
 
-WEB_INDEX = Path(__file__).resolve().parent / "web" / "index.html"
+WEB_ROOT = Path(__file__).resolve().parent / "web"
+WEB_INDEX = WEB_ROOT / "index.html"
+WEB_BOOKING = WEB_ROOT / "booking.html"
+WEB_ASSETS = WEB_ROOT / "assets"
+
+app.mount(
+    "/app/assets",
+    StaticFiles(directory=WEB_ASSETS),
+    name="app-assets",
+)
 
 
 _DATABASE_UNAVAILABLE_DETAIL = (
@@ -68,6 +78,15 @@ async def root_redirect() -> RedirectResponse:
 @app.get("/app", response_class=HTMLResponse, include_in_schema=False)
 async def web_app() -> HTMLResponse:
     return HTMLResponse(WEB_INDEX.read_text(encoding="utf-8"))
+
+
+@app.get(
+    "/app/bookings/{booking_id}",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+async def booking_web_app(booking_id: str) -> HTMLResponse:
+    return HTMLResponse(WEB_BOOKING.read_text(encoding="utf-8"))
 
 
 @app.get("/health")

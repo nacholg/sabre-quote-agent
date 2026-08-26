@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Patagonik Travel · Booking</title>
+  <meta name="theme-color" content="#0f2742">
+  <link rel="stylesheet" href="/app/assets/booking.css">
+</head>
+<body>
+  <header class="booking-header">
+    <a class="brand" href="/app" aria-label="Volver a cotizaciones">
+      <span class="brand-mark">P</span>
+      <span>
+        <strong>Patagonik Travel</strong>
+        <small>Booking workspace</small>
+      </span>
+    </a>
+    <div class="booking-head-meta">
+      <span id="bookingStatus" class="status-pill">Cargando…</span>
+      <strong id="bookingId">Booking</strong>
+    </div>
+  </header>
+
+  <main class="booking-page">
+    <nav class="stepper" aria-label="Progreso de reserva">
+      <div class="step active" aria-current="step">
+        <span>1</span>
+        <strong>Pasajeros</strong>
+      </div>
+      <div class="step">
+        <span>2</span>
+        <strong>Contacto</strong>
+      </div>
+      <div class="step">
+        <span>3</span>
+        <strong>Review</strong>
+      </div>
+      <div class="step">
+        <span>4</span>
+        <strong>Revalidación</strong>
+      </div>
+    </nav>
+
+    <div id="bookingError" class="message error hidden"></div>
+
+    <div id="bookingWorkspace" class="workspace hidden">
+      <section class="main-column">
+        <article class="panel handoff-card">
+          <span class="eyebrow">Reserva iniciada</span>
+          <h1>La selección quedó congelada</h1>
+          <p>
+            Este Booking conserva el itinerario, la tarifa exacta y el mix de
+            pasajeros cotizado. Los cambios posteriores en Shopping no
+            modifican esta reserva.
+          </p>
+
+          <div class="handoff-grid">
+            <div>
+              <small>Booking</small>
+              <strong id="handoffBookingId">—</strong>
+            </div>
+            <div>
+              <small>Cotización origen</small>
+              <a id="sourceQuoteLink" href="/app">—</a>
+            </div>
+            <div>
+              <small>Entorno</small>
+              <strong id="environment">—</strong>
+            </div>
+            <div>
+              <small>Revisión de oferta</small>
+              <strong id="offerRevision">—</strong>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Paso 1</span>
+              <h2>Pasajeros</h2>
+            </div>
+            <span class="dev-badge">Siguiente iteración</span>
+          </div>
+          <p class="muted">
+            La cantidad y el tipo de pasajeros ya quedaron fijados por la
+            cotización. En el próximo tramo del funnel se completarán sus
+            identidades sin permitir cambios en el mix tarifado.
+          </p>
+          <div id="passengerMix" class="passenger-mix"></div>
+          <button class="primary wide" type="button" disabled>
+            Continuar con pasajeros
+          </button>
+        </article>
+      </section>
+
+      <aside class="summary-column">
+        <article class="panel sticky-summary">
+          <div class="summary-head">
+            <div>
+              <span class="eyebrow">Tu selección</span>
+              <h2 id="fareTitle">Tarifa</h2>
+            </div>
+            <strong id="totalPrice" class="total-price">—</strong>
+          </div>
+
+          <div id="segments" class="segments"></div>
+
+          <dl class="fare-meta">
+            <div>
+              <dt>Cabina</dt>
+              <dd id="cabin">—</dd>
+            </div>
+            <div>
+              <dt>Validating carrier</dt>
+              <dd id="validatingCarrier">—</dd>
+            </div>
+          </dl>
+
+          <details class="fare-details">
+            <summary>Ver detalle</summary>
+            <div>
+              <span>Fare basis</span>
+              <strong id="fareBasis">—</strong>
+            </div>
+            <div>
+              <span>Revision de oferta</span>
+              <strong id="revisionNumber">—</strong>
+            </div>
+          </details>
+
+          <a id="backToQuote" class="secondary-link" href="/app">
+            Volver a la cotización
+          </a>
+        </article>
+      </aside>
+    </div>
+  </main>
+
+  <script src="/app/assets/booking.js"></script>
+</body>
+</html>

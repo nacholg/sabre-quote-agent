@@ -1,0 +1,22 @@
+.booking-reserve-slot{
+  margin-top:9px;
+}
+.booking-reserve-slot.hidden{
+  display:none;
+}
+.booking-reserve-button{
+  width:100%;
+  min-height:36px;
+  padding:8px 10px!important;
+  border:1px solid #2388c2!important;
+  border-radius:9px!important;
+  background:linear-gradient(135deg,#2d9cdb,#267fbd)!important;
+  color:#fff!important;
+  box-shadow:0 5px 12px rgba(45,156,219,.18)!important;
+  font-size:11px!important;
+  font-weight:850!important;
+}
+.booking-reserve-button:hover:not(:disabled){
+  filter:brightness(.98);
+  box-shadow:0 7px 15px rgba(45,156,219,.23)!important;
+}
