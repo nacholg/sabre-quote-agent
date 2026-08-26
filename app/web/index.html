@@ -3184,7 +3184,16 @@ async function ensureSelection(){
 
   const ranks=selectedRanks();
   if(ranks.length){
-    await api(`/quotes/${currentQuoteId}/select`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ranks})});
+    const fareSelections=selectedFareChoices(ranks);
+    const saved=await api(`/quotes/${currentQuoteId}/select`,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ranks,fares:fareSelections})
+    });
+    if(currentQuote){
+      currentQuote.selected_ranks=saved.selected_ranks||ranks;
+      currentQuote.selected_fares=saved.selected_fares||[];
+    }
   }
 }
 
@@ -3375,6 +3384,53 @@ async function showEmail(){
   }catch(e){alert(e.message);}
 }
 
+function fareBasisAuditHtml(fare){
+  const components=Array.isArray(fare?.fare_components)
+    ? fare.fare_components.filter(c=>c?.fare_basis_code)
+    : [];
+
+  if(components.length){
+    const rows=components.map(component=>{
+      const route=[
+        component.begin_airport,
+        component.end_airport
+      ].filter(Boolean).join(" → ");
+
+      const meta=[
+        component.governing_carrier
+          ? `Carrier ${component.governing_carrier}`
+          : null,
+        component.rule_number
+          ? `Rule ${component.rule_number}`
+          : null,
+        component.tariff
+          ? `Tariff ${component.tariff}`
+          : null
+      ].filter(Boolean).join(" · ");
+
+      return `<div class="rule">`+
+        `${route?`<strong>${esc(route)}</strong> · `:""}`+
+        `<strong>${esc(component.fare_basis_code)}</strong>`+
+        `${meta?` <span class="muted">· ${esc(meta)}</span>`:""}`+
+        `</div>`;
+    }).join("");
+
+    return `<div class="rule high" style="margin-top:8px">Bases tarifarias</div>${rows}`;
+  }
+
+  const codes=Array.isArray(fare?.fare_basis_codes)
+    ? fare.fare_basis_codes.filter(Boolean)
+    : [];
+
+  if(!codes.length){
+    return `<div class="rule unknown">Base tarifaria: no informada por Sabre.</div>`;
+  }
+
+  return `<div class="rule high" style="margin-top:8px">`+
+    `Base${codes.length>1?"s":""} tarifarias: ${codes.map(esc).join(" / ")}`+
+    `</div>`;
+}
+
 async function auditRules(){
   if(!currentQuoteId)return;
   try{
@@ -3384,6 +3440,7 @@ async function auditRules(){
     const rows=[];
     (data.options||[]).forEach(o=>(o.fares||[]).forEach(f=>{
       rows.push(`<div class="fare"><strong>Opción ${o.rank} · ${esc(f.brand_name||f.cabin)}</strong>
+      ${fareBasisAuditHtml(f)}
       <div class="rule ${f.baggage.confidence==="high"?"high":"unknown"}">Equipaje: ${esc(fareRuleCommercialText(f, "baggage", f.baggage))}</div>
       <div class="rule ${f.changes.confidence==="high"?"high":"unknown"}">Cambios: ${esc(fareRuleCommercialText(f, "changes", f.changes))}</div>
       <div class="rule ${f.refunds.confidence==="high"?"high":"unknown"}">Devoluciones: ${esc(fareRuleCommercialText(f, "refunds", f.refunds))}</div>
