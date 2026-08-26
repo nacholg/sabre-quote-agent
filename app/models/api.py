@@ -409,10 +409,24 @@ class FareRuleCommercialSummary(BaseModel):
     ticketing: str
 
 
+class FareRuleFareComponent(BaseModel):
+    fare_basis_code: str
+    begin_airport: str | None = None
+    end_airport: str | None = None
+    governing_carrier: str | None = None
+    vendor_code: str | None = None
+    tariff: str | None = None
+    rule_number: str | None = None
+    brand_code: str | None = None
+    brand_name: str | None = None
+
+
 class FareRuleFareAudit(BaseModel):
     cabin: str
     brand_name: str | None = None
     brand_code: str | None = None
+    fare_basis_codes: list[str] = Field(default_factory=list)
+    fare_components: list[FareRuleFareComponent] = Field(default_factory=list)
     currency: str
     price_per_passenger: Decimal
     baggage: FareRuleDatum

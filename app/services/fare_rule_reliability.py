@@ -4,6 +4,7 @@ from app.models.api import (
     FareRuleAuditResponse,
     FareRuleDatum,
     FareRuleFareAudit,
+    FareRuleFareComponent,
     FareRuleOptionAudit,
     StoredQuoteRecord,
 )
@@ -51,6 +52,52 @@ def _status_from_brand(value: str | None, *, kind: str) -> FareRuleDatum:
         confidence="unknown",
         text="BFM no informó una regla explícita para este concepto.",
     )
+
+
+def _fare_basis_codes(fare: FareOption) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+
+    for raw in fare.fare_basis_codes:
+        code = str(raw or "").strip().upper()
+        if code and code not in seen:
+            seen.add(code)
+            result.append(code)
+
+    for component in fare.branded_components:
+        code = str(component.fare_basis_code or "").strip().upper()
+        if code and code not in seen:
+            seen.add(code)
+            result.append(code)
+
+    return result
+
+
+def _fare_components(
+    fare: FareOption,
+) -> list[FareRuleFareComponent]:
+    result: list[FareRuleFareComponent] = []
+
+    for component in fare.branded_components:
+        code = str(component.fare_basis_code or "").strip().upper()
+        if not code:
+            continue
+
+        result.append(
+            FareRuleFareComponent(
+                fare_basis_code=code,
+                begin_airport=component.begin_airport,
+                end_airport=component.end_airport,
+                governing_carrier=component.governing_carrier,
+                vendor_code=component.vendor_code,
+                tariff=component.tariff,
+                rule_number=component.rule_number,
+                brand_code=component.brand_code,
+                brand_name=component.brand_name,
+            )
+        )
+
+    return result
 
 
 def audit_fare(fare: FareOption) -> FareRuleFareAudit:
@@ -130,6 +177,8 @@ def audit_fare(fare: FareOption) -> FareRuleFareAudit:
         cabin=fare.cabin,
         brand_name=fare.brand_name,
         brand_code=fare.brand_code,
+        fare_basis_codes=_fare_basis_codes(fare),
+        fare_components=_fare_components(fare),
         currency=fare.currency,
         price_per_passenger=fare.price_per_passenger,
         baggage=baggage,
