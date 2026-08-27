@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import insert, select
+from sqlalchemy import insert, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.db.models import BookingPnrAttemptRow
@@ -14,6 +14,7 @@ from app.models.booking import (
 from app.services.booking_create_pnr_readiness_service import (
     BookingCreatePnrReadinessService,
 )
+from app.services.booking_pnr_state import require_pnr_attempt_transition
 from app.services.booking_repository import (
     BookingRepository,
     get_booking_repository,
@@ -254,6 +255,169 @@ class BookingPnrAttemptService:
                 "No se pudo releer el intento de creación de PNR."
             )
         return self._record(row)
+
+    def _row_by_attempt_id(self, pnr_attempt_id: int):
+        with self.booking_repository.engine.connect() as connection:
+            return (
+                connection.execute(
+                    select(PNR_ATTEMPT_TABLE).where(
+                        PNR_ATTEMPT_TABLE.c.pnr_attempt_id == pnr_attempt_id
+                    )
+                )
+                .mappings()
+                .first()
+            )
+
+    def get_by_attempt_id(
+        self,
+        pnr_attempt_id: int,
+    ) -> BookingPnrAttemptRecord | None:
+        row = self._row_by_attempt_id(pnr_attempt_id)
+        return self._record(row) if row is not None else None
+
+    def _transition(
+        self,
+        pnr_attempt_id: int,
+        target: PnrAttemptStatus,
+        *,
+        request_fingerprint: str | None = None,
+        confirmation_id: str | None = None,
+        provider_reference: str | None = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
+    ) -> BookingPnrAttemptRecord:
+        row = self._row_by_attempt_id(pnr_attempt_id)
+        if row is None:
+            raise KeyError(pnr_attempt_id)
+
+        current = PnrAttemptStatus(row["status"])
+        require_pnr_attempt_transition(current, target)
+
+        existing_fingerprint = row["request_fingerprint"]
+        if (
+            request_fingerprint is not None
+            and existing_fingerprint is not None
+            and existing_fingerprint != request_fingerprint
+        ):
+            raise BookingPnrAttemptStateError(
+                "El payload Create Booking cambió respecto del fingerprint persistido."
+            )
+
+        now = _utc_now()
+        values: dict[str, object] = {
+            "status": target.value,
+            "updated_at": now,
+        }
+        if request_fingerprint is not None:
+            values["request_fingerprint"] = request_fingerprint
+
+        if target == PnrAttemptStatus.SUBMITTING:
+            if request_fingerprint is None and existing_fingerprint is None:
+                raise BookingPnrAttemptStateError(
+                    "SUBMITTING requiere request_fingerprint persistido."
+                )
+            values.update(
+                submitted_at=now,
+                completed_at=None,
+                confirmation_id=None,
+                provider_reference=None,
+                error_code=None,
+                error_message=None,
+            )
+        elif target == PnrAttemptStatus.SUCCEEDED:
+            if not confirmation_id:
+                raise BookingPnrAttemptStateError(
+                    "SUCCEEDED requiere confirmation_id."
+                )
+            values.update(
+                confirmation_id=confirmation_id,
+                provider_reference=provider_reference,
+                error_code=None,
+                error_message=None,
+                completed_at=now,
+            )
+        elif target in {
+            PnrAttemptStatus.FAILED_SAFE,
+            PnrAttemptStatus.RECONCILIATION_REQUIRED,
+        }:
+            values.update(
+                error_code=error_code,
+                error_message=error_message,
+                completed_at=now,
+            )
+
+        with self.booking_repository.engine.begin() as connection:
+            result = connection.execute(
+                update(PNR_ATTEMPT_TABLE)
+                .where(
+                    PNR_ATTEMPT_TABLE.c.pnr_attempt_id == pnr_attempt_id,
+                    PNR_ATTEMPT_TABLE.c.status == current.value,
+                )
+                .values(**values)
+            )
+            if result.rowcount != 1:
+                raise BookingPnrAttemptStateError(
+                    "El intento PNR cambió en paralelo; recargá antes de continuar."
+                )
+
+        updated = self.get_by_attempt_id(pnr_attempt_id)
+        if updated is None:
+            raise RuntimeError("No se pudo releer el intento PNR.")
+        return updated
+
+    def mark_submitting(
+        self,
+        pnr_attempt_id: int,
+        *,
+        request_fingerprint: str,
+    ) -> BookingPnrAttemptRecord:
+        return self._transition(
+            pnr_attempt_id,
+            PnrAttemptStatus.SUBMITTING,
+            request_fingerprint=request_fingerprint,
+        )
+
+    def mark_succeeded(
+        self,
+        pnr_attempt_id: int,
+        *,
+        confirmation_id: str,
+        provider_reference: str | None = None,
+    ) -> BookingPnrAttemptRecord:
+        return self._transition(
+            pnr_attempt_id,
+            PnrAttemptStatus.SUCCEEDED,
+            confirmation_id=confirmation_id,
+            provider_reference=provider_reference,
+        )
+
+    def mark_failed_safe(
+        self,
+        pnr_attempt_id: int,
+        *,
+        error_code: str,
+        error_message: str,
+    ) -> BookingPnrAttemptRecord:
+        return self._transition(
+            pnr_attempt_id,
+            PnrAttemptStatus.FAILED_SAFE,
+            error_code=error_code,
+            error_message=error_message,
+        )
+
+    def mark_reconciliation_required(
+        self,
+        pnr_attempt_id: int,
+        *,
+        error_code: str,
+        error_message: str,
+    ) -> BookingPnrAttemptRecord:
+        return self._transition(
+            pnr_attempt_id,
+            PnrAttemptStatus.RECONCILIATION_REQUIRED,
+            error_code=error_code,
+            error_message=error_message,
+        )
 
 
 def get_booking_pnr_attempt_service() -> BookingPnrAttemptService:

@@ -15,18 +15,20 @@ from app.services.booking_state import (
 CREATE_BOOKING_PATH = "/trip/orders/createBooking"
 
 
-def test_v0315_cannot_transition_to_pnr_created() -> None:
-    assert (
-        can_transition(
-            BookingStatus.READY_TO_CREATE_PNR,
-            BookingStatus.PNR_CREATED,
-        )
-        is False
-    )
+def test_v0320_can_transition_to_pnr_created_only_from_ready() -> None:
+    assert can_transition(
+        BookingStatus.READY_TO_CREATE_PNR,
+        BookingStatus.PNR_CREATED,
+    ) is True
+
+    assert require_transition(
+        BookingStatus.READY_TO_CREATE_PNR,
+        BookingStatus.PNR_CREATED,
+    ) == BookingStatus.PNR_CREATED
 
     with pytest.raises(BookingStateTransitionError):
         require_transition(
-            BookingStatus.READY_TO_CREATE_PNR,
+            BookingStatus.READY_FOR_REVIEW,
             BookingStatus.PNR_CREATED,
         )
 
