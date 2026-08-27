@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -50,6 +51,29 @@ from app.services.quote_repository import (
 BOOKING_TABLE = BookingRow.__table__
 OFFER_REVISION_TABLE = BookingOfferRevisionRow.__table__
 REVALIDATION_TABLE = BookingRevalidationRow.__table__
+
+# Process-local duplicate suppression. The DB optimistic revision check remains
+# the cross-process safety net; this prevents the common double-click / retry
+# case from issuing the same Sabre revalidation twice in one worker.
+_REVALIDATION_LOCKS: dict[str, asyncio.Lock] = {}
+
+
+def _revalidation_lock(booking_id: str) -> asyncio.Lock:
+    lock = _REVALIDATION_LOCKS.get(booking_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _REVALIDATION_LOCKS[booking_id] = lock
+    return lock
+
+
+def _legacy_quote_legs(
+    search_request: dict[str, object],
+) -> list[SearchLeg]:
+    """Rebuild legs from historical Quotes that may contain trip_type=null."""
+    payload = dict(search_request)
+    if payload.get("trip_type") is None:
+        payload.pop("trip_type", None)
+    return QuoteSearchRequest.model_validate(payload).effective_legs()
 
 
 class BookingRevalidationProvider(Protocol):
@@ -445,14 +469,13 @@ class BookingRevalidationService:
             )
 
         try:
-            search = QuoteSearchRequest.model_validate(
+            return _legacy_quote_legs(
                 source_quote.search_request
             )
         except Exception as exc:
             raise BookingRevalidationDataError(
                 "No se pudieron reconstruir los legs del Quote origen."
             ) from exc
-        return search.effective_legs()
 
     def _preflight(
         self,
@@ -561,6 +584,30 @@ class BookingRevalidationService:
             booking,
             self._latest_row(booking_id),
         )
+
+    def _safe_retry_row(
+        self,
+        booking: BookingRecord,
+        request: BookingRevalidationRequest,
+    ):
+        """Return the immediately preceding result for an exact safe retry.
+
+        Persisted revalidation advances Booking revision by exactly one and
+        writes Booking.updated_at == revalidation.checked_at. Material edits
+        advance revision again and/or mark the result stale, so they cannot be
+        mistaken for a retry of the same request.
+        """
+        if request.revision + 1 != booking.revision:
+            return None
+
+        row = self._latest_row(booking.booking_id)
+        if row is None or row["stale_at"] is not None:
+            return None
+        if row["status"] != booking.revalidation_status.value:
+            return None
+        if row["checked_at"] != booking.updated_at:
+            return None
+        return row
 
     def _next_offer_revision_number(self, connection, booking_id: str) -> int:
         current = connection.execute(
@@ -695,7 +742,23 @@ class BookingRevalidationService:
         booking_id: str,
         request: BookingRevalidationRequest,
     ) -> BookingRevalidationResponse:
+        async with _revalidation_lock(booking_id):
+            return await self._revalidate_locked(
+                booking_id,
+                request,
+            )
+
+    async def _revalidate_locked(
+        self,
+        booking_id: str,
+        request: BookingRevalidationRequest,
+    ) -> BookingRevalidationResponse:
         booking = self._booking(booking_id)
+
+        retry_row = self._safe_retry_row(booking, request)
+        if retry_row is not None:
+            return self._response(booking, retry_row)
+
         self._preflight(booking, request)
 
         source_revision = booking.accepted_offer_revision

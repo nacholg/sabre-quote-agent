@@ -32,8 +32,9 @@ _ALLOWED_TRANSITIONS: dict[BookingStatus, set[BookingStatus]] = {
     BookingStatus.READY_TO_CREATE_PNR: {
         BookingStatus.REVALIDATION_REQUIRED,
         BookingStatus.ABANDONED,
-        # Reserved for v0.32. The v0.31 service layer must never call it.
-        BookingStatus.PNR_CREATED,
+        # PNR_CREATED stays deliberately unreachable throughout v0.31.
+        # v0.32 must enable this transition together with the idempotent
+        # Create PNR service that owns the actual Sabre write.
     },
     BookingStatus.ABANDONED: set(),
     BookingStatus.PNR_CREATED: set(),

@@ -1,3 +1,3 @@
 """Application version source of truth."""
 
-__version__ = "0.31.4"
+__version__ = "0.31.5"

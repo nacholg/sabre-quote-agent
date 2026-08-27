@@ -184,3 +184,21 @@ class BookingRevalidationResponse(BaseModel):
     error_code: str | None = None
     error_message: str | None = None
     stale_at: str | None = None
+
+
+
+class BookingCreatePnrReadinessResponse(BaseModel):
+    """Read-only v0.31.5 gate for the future Create Booking action."""
+
+    booking_id: str
+    booking_revision: int = Field(ge=1)
+    ready: bool
+    status: BookingStatus
+    revalidation_status: RevalidationStatus
+    accepted_offer_revision_id: int | None = None
+    revalidation_id: int | None = None
+    passenger_count: int = Field(default=0, ge=0)
+    segment_count: int = Field(default=0, ge=0)
+    sabre_passenger_codes: list[str] = Field(default_factory=list)
+    reasons: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)

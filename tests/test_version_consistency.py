@@ -10,7 +10,7 @@ def test_application_version_matches_project_version():
         Path("pyproject.toml").read_text(encoding="utf-8")
     )
 
-    assert __version__ == "0.31.4"
+    assert __version__ == "0.31.5"
     assert app.version == __version__
     assert "version" in pyproject["project"]["dynamic"]
     assert pyproject["tool"]["setuptools"]["dynamic"]["version"] == {
