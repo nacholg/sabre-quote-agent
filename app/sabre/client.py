@@ -164,7 +164,7 @@ class SabreClient:
                 )
                 _http_elapsed = time.perf_counter() - _http_started
                 print(
-                    f"[SABRE] BFM HTTP: {_http_elapsed:.3f}s | "
+                    f"[SABRE] HTTP: {_http_elapsed:.3f}s | "
                     f"attempt={attempt + 1} | HTTP={response.status_code}"
                 )
                 self._capture_exchange(url=url, payload=payload, response=response, started=started)

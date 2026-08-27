@@ -7,6 +7,8 @@ from app.models.booking import (
     BookingPassengersResponse,
     BookingPassengersUpdateRequest,
     BookingRecord,
+    BookingRevalidationRequest,
+    BookingRevalidationResponse,
     BookingReviewResponse,
 )
 from app.services.booking_contact_service import (
@@ -22,6 +24,12 @@ from app.services.booking_passenger_service import (
     get_booking_passenger_service,
 )
 from app.services.booking_review_service import get_booking_review_service
+from app.services.booking_revalidation_service import (
+    BookingRevalidationConflictError,
+    BookingRevalidationDataError,
+    BookingRevalidationStateError,
+    get_booking_revalidation_service,
+)
 from app.services.booking_repository import (
     BookingIdempotencyConflictError,
     get_booking_repository,
@@ -211,3 +219,54 @@ async def get_booking_review(
             status_code=404,
             detail=f"Reserva no encontrada: {booking_id}",
         )
+
+
+@router.get(
+    "/bookings/{booking_id}/revalidation",
+    response_model=BookingRevalidationResponse,
+    summary="Leer última revalidación del Booking",
+)
+async def get_booking_revalidation(
+    booking_id: str,
+) -> BookingRevalidationResponse:
+    try:
+        return get_booking_revalidation_service().get(booking_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Reserva no encontrada: {booking_id}",
+        )
+
+
+@router.post(
+    "/bookings/{booking_id}/revalidation",
+    response_model=BookingRevalidationResponse,
+    summary="Revalidar producto exacto con Sabre",
+)
+async def revalidate_booking(
+    booking_id: str,
+    request: BookingRevalidationRequest,
+) -> BookingRevalidationResponse:
+    try:
+        return await get_booking_revalidation_service().revalidate(
+            booking_id,
+            request,
+        )
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Reserva no encontrada: {booking_id}",
+        )
+    except (
+        BookingRevalidationConflictError,
+        BookingRevalidationStateError,
+    ) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+    except BookingRevalidationDataError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc

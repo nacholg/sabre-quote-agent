@@ -377,11 +377,42 @@
       </section>
     `;
 
-    reviewStatus(
-      data.ready_for_review
-        ? "Booking listo para pasar a revalidación."
-        : "El Booking todavía tiene datos pendientes.",
-      data.ready_for_review ? "ok" : "info"
+    const revalidationAllowed = (
+      data.passengers_complete &&
+      data.contact_complete &&
+      [
+        "ready_for_review",
+        "revalidation_required",
+        "requires_agent_action",
+        "ready_to_create_pnr",
+      ].includes(data.status)
+    );
+
+    const revalidationButton = $("continueRevalidationButton");
+    if (revalidationButton) {
+      revalidationButton.disabled = !revalidationAllowed;
+      revalidationButton.textContent = data.ready_for_review
+        ? "Continuar a Revalidación"
+        : "Ver Revalidación";
+    }
+
+    let reviewMessage = "El Booking todavía tiene datos pendientes.";
+    let reviewKind = "info";
+    if (data.ready_for_review) {
+      reviewMessage = "Booking listo para pasar a revalidación.";
+      reviewKind = "ok";
+    } else if (data.status === "ready_to_create_pnr") {
+      reviewMessage = "Booking revalidado y listo para crear PNR en v0.32.";
+      reviewKind = "ok";
+    } else if (data.status === "requires_agent_action") {
+      reviewMessage = "La revalidación requiere revisión del agente.";
+    } else if (data.status === "revalidation_required") {
+      reviewMessage = "Los datos cambiaron y el Booking debe revalidarse otra vez.";
+    }
+
+    reviewStatus(reviewMessage, reviewKind);
+    window.dispatchEvent(
+      new CustomEvent("booking:review-state", {detail: data})
     );
   }
 

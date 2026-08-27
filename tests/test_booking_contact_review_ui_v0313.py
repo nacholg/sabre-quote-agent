@@ -15,12 +15,11 @@ def test_booking_workspace_has_contact_and_review_panels() -> None:
     assert "/app/assets/booking-contact-review.js" in html
 
 
-def test_revalidation_step_remains_locked_in_v0313() -> None:
+def test_revalidation_handoff_remains_present_after_v0313() -> None:
     html = Path("app/web/booking.html").read_text(encoding="utf-8")
 
     assert 'data-funnel-step="revalidation"' in html
-    assert 'aria-disabled="true"' in html
-    assert "Revalidación · siguiente iteración" in html
+    assert "Revalidación" in html
     assert "create-pnr" not in html.lower()
 
 

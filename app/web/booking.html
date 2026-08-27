@@ -36,11 +36,7 @@
         <span>3</span>
         <strong>Review</strong>
       </div>
-      <div
-        class="step locked"
-        data-funnel-step="revalidation"
-        aria-disabled="true"
-      >
+      <div class="step" data-funnel-step="revalidation">
         <span>4</span>
         <strong>Revalidación</strong>
       </div>
@@ -269,7 +265,48 @@
               type="button"
               disabled
             >
-              Revalidación · siguiente iteración
+              Continuar a Revalidación
+            </button>
+          </div>
+        </article>
+
+        <article
+          id="revalidationPanel"
+          class="panel funnel-panel hidden"
+          data-funnel-panel="revalidation"
+        >
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Paso 4</span>
+              <h2>Revalidación</h2>
+            </div>
+            <span id="revalidationBadge" class="dev-badge">
+              Sin revalidar
+            </span>
+          </div>
+
+          <p class="muted">
+            Sabre verificará nuevamente el vuelo, la clase de reserva y la
+            tarifa exacta congelada. Esta acción no crea un PNR.
+          </p>
+
+          <div id="revalidationStatus" class="message hidden"></div>
+          <div id="revalidationContent" class="revalidation-content"></div>
+
+          <div class="funnel-actions">
+            <button
+              id="backToReviewButton"
+              class="secondary-action"
+              type="button"
+            >
+              Volver a Review
+            </button>
+            <button
+              id="runRevalidationButton"
+              class="primary"
+              type="button"
+            >
+              Revalidar con Sabre
             </button>
           </div>
         </article>
@@ -321,5 +358,6 @@
   <script src="/app/assets/booking.js"></script>
   <script src="/app/assets/booking-passengers.js"></script>
   <script src="/app/assets/booking-contact-review.js"></script>
+  <script src="/app/assets/booking-revalidation.js"></script>
 </body>
 </html>

@@ -7,7 +7,11 @@ from app.models.booking import (
     BookingRecord,
 )
 from app.models.itinerary import ItineraryOption
-from app.models.quote_request import PassengerKind, PassengerSpec
+from app.models.quote_request import (
+    PassengerKind,
+    PassengerSpec,
+    SearchLeg,
+)
 from app.services.booking_repository import (
     BookingRepository,
     get_booking_repository,
@@ -95,6 +99,49 @@ def _environment(record: StoredQuoteRecord) -> str:
     return value
 
 
+def _search_legs(
+    record: StoredQuoteRecord,
+) -> list[SearchLeg]:
+    """Rebuild canonical legs without validating unrelated legacy metadata."""
+
+    raw = record.search_request
+    raw_legs = list(raw.get("legs") or [])
+    if raw_legs:
+        return [
+            SearchLeg.model_validate(item)
+            for item in raw_legs
+        ]
+
+    origin = raw.get("origin")
+    destination = raw.get("destination")
+    departure_date = raw.get("departure_date")
+    if not origin or not destination or not departure_date:
+        raise BookingSelectionError(
+            "No se pudieron reconstruir los legs de la cotización origen."
+        )
+
+    legs = [
+        SearchLeg(
+            origin=origin,
+            destination=destination,
+            departure_date=departure_date,
+            departure_time=raw.get("departure_time") or "12:00:00",
+        )
+    ]
+
+    if raw.get("return_date"):
+        legs.append(
+            SearchLeg(
+                origin=destination,
+                destination=origin,
+                departure_date=raw["return_date"],
+                departure_time=raw.get("return_time") or "12:00:00",
+            )
+        )
+
+    return legs
+
+
 class BookingService:
     def __init__(
         self,
@@ -158,6 +205,7 @@ class BookingService:
             segments=itinerary.segments,
             fare=selected_fare.fare,
             passenger_mix=_passenger_mix(record),
+            legs=_search_legs(record),
         )
 
         return self.booking_repository.create_initial(

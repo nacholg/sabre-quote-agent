@@ -162,6 +162,9 @@ def test_create_booking_freezes_exact_server_side_product(tmp_path) -> None:
     assert snapshot.fare.fare_basis_codes == ["OLN0AFM1"]
     assert snapshot.segments[0].flight_number == "900"
     assert snapshot.segments[0].booking_class == "O"
+    assert [(leg.origin, leg.destination) for leg in snapshot.legs] == [
+        ("EZE", "MIA"),
+    ]
     assert [(item.type.value, item.quantity, item.age) for item in snapshot.passenger_mix] == [
         ("ADT", 1, None),
         ("CHILD", 1, 7),

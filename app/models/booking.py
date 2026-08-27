@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.models.commercial_quote import CommercialFare
 from app.models.itinerary import FlightSegment
-from app.models.quote_request import PassengerKind, PassengerSpec
+from app.models.quote_request import PassengerKind, PassengerSpec, SearchLeg
 
 
 class BookingStatus(StrEnum):
@@ -53,6 +53,9 @@ class BookingOfferSnapshot(BaseModel):
     segments: list[FlightSegment] = Field(min_length=1)
     fare: CommercialFare
     passenger_mix: list[PassengerSpec] = Field(default_factory=list)
+    # Added in v0.31.4 so Revalidate can rebuild exact O&D grouping without
+    # consulting mutable Shopping state. Empty keeps historical Bookings valid.
+    legs: list[SearchLeg] = Field(default_factory=list)
 
 
 class BookingOfferRevision(BaseModel):
@@ -160,3 +163,24 @@ class BookingReviewResponse(BaseModel):
     offer_revision: BookingOfferRevision
     passengers: list[BookingPassengerRecord]
     contact: BookingContactRecord
+
+
+class BookingRevalidationRequest(BaseModel):
+    revision: int = Field(ge=1)
+
+
+class BookingRevalidationResponse(BaseModel):
+    booking_id: str
+    booking_revision: int = Field(ge=1)
+    status: BookingStatus
+    revalidation_status: RevalidationStatus
+    revalidation_id: int | None = None
+    checked_at: str | None = None
+    provider: str | None = None
+    provider_reference: str | None = None
+    source_offer_revision_id: int | None = None
+    candidate_offer_revision_id: int | None = None
+    diff: dict[str, object] | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    stale_at: str | None = None
