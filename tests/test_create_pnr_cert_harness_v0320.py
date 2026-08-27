@@ -57,3 +57,7 @@ def test_cert_write_harness_surfaces_reconciliation_without_retry():
     assert "reconciliation_required" in lower
     assert "no retry" in lower
     assert "bookingpnrattemptservice" in lower
+
+def test_cert_write_harness_prints_persisted_safe_diagnostic():
+    lower = EXECUTE.lower()
+    assert "error_message=" in lower

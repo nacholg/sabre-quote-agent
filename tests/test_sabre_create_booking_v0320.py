@@ -282,3 +282,141 @@ def test_post_once_source_has_no_retry_loop() -> None:
     source = inspect.getsource(SabreClient.post_once)
     assert "range(" not in source
     assert "asyncio.sleep" not in source
+
+@pytest.mark.asyncio
+async def test_missing_confirmation_persists_sanitized_diagnostic() -> None:
+    payload = {
+        "travelers": [
+            {
+                "givenName": "CERTTEST",
+                "surname": "BOOKING",
+                "birthDate": "1985-04-15",
+            }
+        ],
+        "contactInfo": {
+            "emails": ["test@example.com"],
+            "phones": ["+541100000000"],
+        },
+        "flightDetails": {"flights": []},
+    }
+    client = FakeClient(
+        result={
+            "status": "INCOMPLETE",
+            "bookingId": "TEMP-123",
+            "errors": [
+                {
+                    "code": "ERR.TEST",
+                    "severity": "ERROR",
+                    "message": (
+                        "Passenger CERTTEST BOOKING "
+                        "test@example.com +541100000000 rejected"
+                    ),
+                }
+            ],
+            "travelers": [
+                {"givenName": "CERTTEST", "surname": "BOOKING"}
+            ],
+        }
+    )
+    provider = SabreCreateBookingProvider(
+        settings=_settings(),
+        client=client,
+    )
+
+    with pytest.raises(
+        SabreCreateBookingAmbiguousFailure
+    ) as caught:
+        await provider.create_booking(
+            payload,
+            environment="cert",
+        )
+
+    exc = caught.value
+    assert exc.code == "MISSING_CONFIRMATION_ID"
+    assert exc.diagnostic is not None
+
+    rendered = json.dumps(
+        exc.diagnostic,
+        ensure_ascii=False,
+    )
+    message = str(exc)
+
+    assert "ERR.TEST" in rendered
+    assert "TEMP-123" in rendered
+    assert "CERTTEST" not in rendered
+    assert "BOOKING" not in rendered
+    assert "test@example.com" not in rendered
+    assert "+541100000000" not in rendered
+    assert "CERTTEST" not in message
+    assert "test@example.com" not in message
+
+
+@pytest.mark.asyncio
+async def test_booking_id_is_diagnostic_not_success_locator() -> None:
+    client = FakeClient(
+        result={
+            "bookingId": "TEMP-ONLY",
+            "status": "PENDING",
+        }
+    )
+    provider = SabreCreateBookingProvider(
+        settings=_settings(),
+        client=client,
+    )
+
+    with pytest.raises(
+        SabreCreateBookingAmbiguousFailure
+    ) as caught:
+        await provider.create_booking(
+            {"travelers": []},
+            environment="cert",
+        )
+
+    assert caught.value.code == "MISSING_CONFIRMATION_ID"
+    assert caught.value.diagnostic is not None
+    rendered = json.dumps(caught.value.diagnostic)
+    assert "TEMP-ONLY" in rendered
+
+
+@pytest.mark.asyncio
+async def test_http_error_body_is_sanitized_into_diagnostic() -> None:
+    response_body = json.dumps(
+        {
+            "errors": [
+                {
+                    "code": "INVALID_INPUT",
+                    "message": "Bad traveler CERTTEST test@example.com",
+                }
+            ]
+        }
+    )
+    client = FakeClient(
+        error=SabreAPIError(
+            400,
+            "Bad Request",
+            response_body,
+        )
+    )
+    provider = SabreCreateBookingProvider(
+        settings=_settings(),
+        client=client,
+    )
+
+    with pytest.raises(
+        SabreCreateBookingSafeFailure
+    ) as caught:
+        await provider.create_booking(
+            {
+                "travelers": [{"givenName": "CERTTEST"}],
+                "contactInfo": {
+                    "emails": ["test@example.com"],
+                },
+            },
+            environment="cert",
+        )
+
+    assert caught.value.code == "HTTP_400"
+    rendered = json.dumps(caught.value.diagnostic)
+    assert "INVALID_INPUT" in rendered
+    assert "CERTTEST" not in rendered
+    assert "test@example.com" not in rendered

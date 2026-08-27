@@ -149,8 +149,12 @@ async def _execute(
                 f"{attempt.request_fingerprint or '-'}"
             )
             print(f"error_code={attempt.error_code or '-'}")
+            print(
+                "error_message="
+                f"{(attempt.error_message or '-')[:1000]}"
+            )
         print("NO RETRY. Reconcile this attempt before any new action.")
-        print(f"detail={str(exc)[:300]}")
+        print(f"detail={str(exc)[:1000]}")
         return 3
 
     print()
@@ -161,6 +165,7 @@ async def _execute(
     print(f"confirmation_id={attempt.confirmation_id or '-'}")
     print(f"provider_reference={attempt.provider_reference or '-'}")
     print(f"error_code={attempt.error_code or '-'}")
+    print(f"error_message={(attempt.error_message or '-')[:1000]}")
 
     if attempt.status == PnrAttemptStatus.SUCCEEDED:
         print("PNR CREATED IN CERT.")

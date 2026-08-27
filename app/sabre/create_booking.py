@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -11,6 +13,187 @@ from app.sabre.errors import (
     SabreWriteNotSentError,
 )
 
+_DIAGNOSTIC_SIGNAL_KEYS = {
+    "bookingid",
+    "category",
+    "code",
+    "confirmationid",
+    "conversationid",
+    "detail",
+    "errorcode",
+    "message",
+    "severity",
+    "status",
+    "statuscode",
+    "title",
+    "transactionid",
+    "type",
+}
+
+_DIAGNOSTIC_SKIP_BRANCHES = {
+    "agency",
+    "contactinfo",
+    "formsofpayment",
+    "identitydocuments",
+    "passengers",
+    "payment",
+    "payments",
+    "personname",
+    "profiles",
+    "travelers",
+}
+
+
+def _payload_sensitive_values(payload: dict[str, object]) -> set[str]:
+    roots = (
+        payload.get("travelers"),
+        payload.get("contactInfo"),
+        payload.get("identityDocuments"),
+        payload.get("payment"),
+        payload.get("payments"),
+    )
+    values: set[str] = set()
+
+    def walk(value: object) -> None:
+        if isinstance(value, dict):
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+        elif isinstance(value, (str, int, float)):
+            text = str(value).strip()
+            if len(text) >= 3:
+                values.add(text)
+
+    for root in roots:
+        walk(root)
+    return values
+
+
+def _redact_diagnostic_text(
+    value: object,
+    *,
+    sensitive_values: set[str],
+) -> str:
+    text = str(value)
+
+    for sensitive in sorted(
+        sensitive_values,
+        key=len,
+        reverse=True,
+    ):
+        if not sensitive:
+            continue
+        text = re.sub(
+            re.escape(sensitive),
+            "[REDACTED]",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+    text = re.sub(
+        r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b",
+        "[REDACTED_EMAIL]",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?<!\w)\+?\d[\d\s().-]{6,}\d(?!\w)",
+        "[REDACTED_NUMBER]",
+        text,
+    )
+    return text[:240]
+
+
+def sanitize_create_booking_response(
+    body: object,
+    payload: dict[str, object],
+) -> dict[str, object]:
+    sensitive_values = _payload_sensitive_values(payload)
+    diagnostic: dict[str, object] = {
+        "response_type": type(body).__name__,
+    }
+
+    if isinstance(body, dict):
+        diagnostic["top_level_keys"] = sorted(
+            str(key) for key in body.keys()
+        )[:30]
+    elif isinstance(body, str):
+        diagnostic["text"] = _redact_diagnostic_text(
+            body,
+            sensitive_values=sensitive_values,
+        )
+        return diagnostic
+    else:
+        return diagnostic
+
+    signals: list[dict[str, str]] = []
+
+    def walk(value: object, path: str = "$") -> None:
+        if len(signals) >= 20:
+            return
+
+        if isinstance(value, dict):
+            for key, item in value.items():
+                key_text = str(key)
+                key_lower = key_text.lower()
+                child_path = f"{path}.{key_text}"
+
+                if key_lower in _DIAGNOSTIC_SKIP_BRANCHES:
+                    continue
+
+                if (
+                    key_lower in _DIAGNOSTIC_SIGNAL_KEYS
+                    and isinstance(item, (str, int, float, bool))
+                ):
+                    signals.append(
+                        {
+                            "path": child_path,
+                            "value": _redact_diagnostic_text(
+                                item,
+                                sensitive_values=sensitive_values,
+                            ),
+                        }
+                    )
+
+                if isinstance(item, (dict, list)):
+                    walk(item, child_path)
+        elif isinstance(value, list):
+            for index, item in enumerate(value[:20]):
+                walk(item, f"{path}[{index}]")
+
+    walk(body)
+    diagnostic["signals"] = signals
+    return diagnostic
+
+
+def _diagnostic_from_response_text(
+    text: str,
+    payload: dict[str, object],
+) -> dict[str, object] | None:
+    if not text:
+        return None
+    try:
+        body = json.loads(text)
+    except (TypeError, ValueError):
+        body = text
+    return sanitize_create_booking_response(body, payload)
+
+
+def _diagnostic_suffix(
+    diagnostic: dict[str, object] | None,
+) -> str:
+    if not diagnostic:
+        return ""
+    rendered = json.dumps(
+        diagnostic,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return f" diagnostic={rendered[:800]}"
+
 
 class SabreCreateBookingDisabledError(RuntimeError):
     """Create Booking has not been explicitly enabled for this runtime."""
@@ -19,17 +202,31 @@ class SabreCreateBookingDisabledError(RuntimeError):
 class SabreCreateBookingSafeFailure(RuntimeError):
     """Definitive failure where no Create Booking retry ambiguity exists."""
 
-    def __init__(self, code: str, message: str) -> None:
-        super().__init__(message)
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        diagnostic: dict[str, object] | None = None,
+    ) -> None:
         self.code = code
+        self.diagnostic = diagnostic
+        super().__init__(message + _diagnostic_suffix(diagnostic))
 
 
 class SabreCreateBookingAmbiguousFailure(RuntimeError):
     """Sabre may have created the PNR; reconciliation is mandatory."""
 
-    def __init__(self, code: str, message: str) -> None:
-        super().__init__(message)
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        diagnostic: dict[str, object] | None = None,
+    ) -> None:
         self.code = code
+        self.diagnostic = diagnostic
+        super().__init__(message + _diagnostic_suffix(diagnostic))
 
 
 @dataclass(frozen=True)
@@ -130,14 +327,20 @@ class SabreCreateBookingProvider:
                 ) from exc
             except SabreAPIError as exc:
                 code = f"HTTP_{exc.status_code}"
+                diagnostic = _diagnostic_from_response_text(
+                    exc.response_body,
+                    payload,
+                )
                 if exc.status_code >= 500:
                     raise SabreCreateBookingAmbiguousFailure(
                         code,
                         str(exc),
+                        diagnostic=diagnostic,
                     ) from exc
                 raise SabreCreateBookingSafeFailure(
                     code,
                     str(exc),
+                    diagnostic=diagnostic,
                 ) from exc
 
             confirmation_id = _find_first_string(
@@ -145,10 +348,15 @@ class SabreCreateBookingProvider:
                 {"confirmationId"},
             )
             if not confirmation_id:
+                diagnostic = sanitize_create_booking_response(
+                    body,
+                    payload,
+                )
                 raise SabreCreateBookingAmbiguousFailure(
                     "MISSING_CONFIRMATION_ID",
                     "Sabre respondió Create Booking sin un confirmationId "
                     "inequívoco. No se reintentará automáticamente.",
+                    diagnostic=diagnostic,
                 )
 
             provider_reference = _find_first_string(
