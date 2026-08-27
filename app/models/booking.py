@@ -121,3 +121,42 @@ class BookingPassengersResponse(BaseModel):
     booking_revision: int = Field(ge=1)
     complete: bool
     passengers: list[BookingPassengerRecord]
+
+
+class BookingPreferredChannel(StrEnum):
+    EMAIL = "email"
+    PHONE = "phone"
+    WHATSAPP = "whatsapp"
+
+
+class BookingContactUpdateRequest(BaseModel):
+    revision: int = Field(ge=1)
+    name: str | None = Field(default=None, max_length=120)
+    email: str | None = Field(default=None, max_length=254)
+    phone_country_code: str | None = Field(default=None, max_length=8)
+    phone_number: str | None = Field(default=None, max_length=32)
+    preferred_channel: BookingPreferredChannel | None = None
+
+
+class BookingContactRecord(BaseModel):
+    booking_id: str
+    booking_revision: int = Field(ge=1)
+    name: str | None = None
+    email: str | None = None
+    phone_country_code: str | None = None
+    phone_number: str | None = None
+    preferred_channel: BookingPreferredChannel | None = None
+    complete: bool = False
+
+
+class BookingReviewResponse(BaseModel):
+    booking_id: str
+    booking_revision: int = Field(ge=1)
+    status: BookingStatus
+    revalidation_status: RevalidationStatus
+    ready_for_review: bool
+    passengers_complete: bool
+    contact_complete: bool
+    offer_revision: BookingOfferRevision
+    passengers: list[BookingPassengerRecord]
+    contact: BookingContactRecord

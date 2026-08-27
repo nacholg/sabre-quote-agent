@@ -215,6 +215,15 @@
     if (continueButton) {
       continueButton.disabled = !data.complete;
     }
+
+    window.dispatchEvent(
+      new CustomEvent("booking:passengers-state", {detail: data})
+    );
+    window.dispatchEvent(
+      new CustomEvent("booking:revision-changed", {
+        detail: {booking_revision: data.booking_revision},
+      })
+    );
   }
 
   function fieldValue(slot, field) {
@@ -348,20 +357,21 @@
   function continueToContact() {
     if (!passengerState?.complete) return;
 
-    document.querySelectorAll(".step").forEach((step, index) => {
-      step.classList.toggle("active", index === 1);
-      if (index === 1) {
-        step.setAttribute("aria-current", "step");
-      } else {
-        step.removeAttribute("aria-current");
-      }
-    });
-
-    setStatus(
-      "Pasajeros completos. El formulario de Contacto se habilita en v0.31.3.",
-      "ok"
-    );
+    if (window.bookingFunnel?.openStep) {
+      window.bookingFunnel.openStep("contact");
+    }
   }
+
+  window.addEventListener("booking:revision-changed", event => {
+    const revision = Number(event.detail?.booking_revision);
+    if (
+      passengerState &&
+      Number.isFinite(revision) &&
+      revision > Number(passengerState.booking_revision || 0)
+    ) {
+      passengerState.booking_revision = revision;
+    }
+  });
 
   $("passengerForm")?.addEventListener("submit", savePassengers);
   $("continueContactButton")?.addEventListener(

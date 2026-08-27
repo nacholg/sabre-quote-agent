@@ -24,19 +24,23 @@
 
   <main class="booking-page">
     <nav class="stepper" aria-label="Progreso de reserva">
-      <div class="step active" aria-current="step">
+      <div class="step active" data-funnel-step="passengers" aria-current="step">
         <span>1</span>
         <strong>Pasajeros</strong>
       </div>
-      <div class="step">
+      <div class="step" data-funnel-step="contact">
         <span>2</span>
         <strong>Contacto</strong>
       </div>
-      <div class="step">
+      <div class="step" data-funnel-step="review">
         <span>3</span>
         <strong>Review</strong>
       </div>
-      <div class="step">
+      <div
+        class="step locked"
+        data-funnel-step="revalidation"
+        aria-disabled="true"
+      >
         <span>4</span>
         <strong>Revalidación</strong>
       </div>
@@ -75,7 +79,11 @@
           </div>
         </article>
 
-        <article class="panel passenger-panel">
+        <article
+          id="passengerPanel"
+          class="panel passenger-panel funnel-panel"
+          data-funnel-panel="passengers"
+        >
           <div class="section-head">
             <div>
               <span class="eyebrow">Paso 1</span>
@@ -114,6 +122,156 @@
               </button>
             </div>
           </form>
+        </article>
+
+        <article
+          id="contactPanel"
+          class="panel funnel-panel hidden"
+          data-funnel-panel="contact"
+        >
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Paso 2</span>
+              <h2>Contacto</h2>
+            </div>
+            <span id="contactCompletionBadge" class="dev-badge">
+              Datos pendientes
+            </span>
+          </div>
+          <p class="muted">
+            Estos datos se usarán como contacto principal de la reserva.
+            Pasajeros y contacto deben estar completos antes del Review.
+          </p>
+
+          <div id="contactStatus" class="message hidden"></div>
+
+          <form id="contactForm" class="contact-form" autocomplete="off">
+            <div class="contact-grid">
+              <label class="field full-width">
+                <span>Nombre del contacto *</span>
+                <input
+                  id="contactName"
+                  type="text"
+                  maxlength="120"
+                  autocomplete="name"
+                  required
+                >
+              </label>
+
+              <label class="field full-width">
+                <span>Email *</span>
+                <input
+                  id="contactEmail"
+                  type="email"
+                  maxlength="254"
+                  autocomplete="email"
+                  required
+                >
+              </label>
+
+              <label class="field">
+                <span>Código de país *</span>
+                <input
+                  id="contactCountryCode"
+                  type="tel"
+                  maxlength="8"
+                  inputmode="tel"
+                  placeholder="+54"
+                  required
+                >
+              </label>
+
+              <label class="field">
+                <span>Teléfono *</span>
+                <input
+                  id="contactPhone"
+                  type="tel"
+                  maxlength="32"
+                  inputmode="tel"
+                  autocomplete="tel-national"
+                  placeholder="11 5555 1234"
+                  required
+                >
+              </label>
+
+              <label class="field full-width">
+                <span>Canal preferido</span>
+                <select id="preferredChannel">
+                  <option value="">Sin preferencia</option>
+                  <option value="email">Email</option>
+                  <option value="phone">Teléfono</option>
+                  <option value="whatsapp">WhatsApp</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="funnel-actions">
+              <button
+                id="backToPassengersButton"
+                class="secondary-action"
+                type="button"
+              >
+                Volver a pasajeros
+              </button>
+              <button
+                id="saveContactButton"
+                class="primary"
+                type="submit"
+              >
+                Guardar contacto
+              </button>
+              <button
+                id="continueReviewButton"
+                class="secondary-action"
+                type="button"
+                disabled
+              >
+                Continuar a Review
+              </button>
+            </div>
+          </form>
+        </article>
+
+        <article
+          id="reviewPanel"
+          class="panel funnel-panel hidden"
+          data-funnel-panel="review"
+        >
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Paso 3</span>
+              <h2>Review</h2>
+            </div>
+            <span id="reviewReadinessBadge" class="dev-badge">
+              Verificando…
+            </span>
+          </div>
+
+          <p class="muted">
+            Revisá el producto congelado, los pasajeros y el contacto antes
+            de pasar a la revalidación con Sabre.
+          </p>
+
+          <div id="reviewStatus" class="message hidden"></div>
+          <div id="reviewContent" class="review-content"></div>
+
+          <div class="funnel-actions">
+            <button
+              id="backToContactButton"
+              class="secondary-action"
+              type="button"
+            >
+              Volver a contacto
+            </button>
+            <button
+              id="continueRevalidationButton"
+              class="primary"
+              type="button"
+              disabled
+            >
+              Revalidación · siguiente iteración
+            </button>
+          </div>
         </article>
       </section>
 
@@ -162,5 +320,6 @@
 
   <script src="/app/assets/booking.js"></script>
   <script src="/app/assets/booking-passengers.js"></script>
+  <script src="/app/assets/booking-contact-review.js"></script>
 </body>
 </html>

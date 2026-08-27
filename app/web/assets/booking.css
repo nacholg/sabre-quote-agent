@@ -434,3 +434,130 @@ dd{margin:0;text-align:right;font-size:12px;font-weight:750;color:var(--navy)}
     width:100%;
   }
 }
+
+/* v0.31.3 · Contact + Review funnel */
+.step[data-funnel-step]:not(.locked){
+  cursor:pointer;
+}
+.step.locked{
+  cursor:not-allowed;
+  background:#f8fafc;
+}
+.funnel-panel{
+  scroll-margin-top:104px;
+}
+.contact-form{
+  margin-top:16px;
+}
+.contact-grid{
+  display:grid;
+  grid-template-columns:minmax(120px,.45fr) minmax(0,1.55fr);
+  gap:11px;
+}
+.contact-grid .full-width{
+  grid-column:1/-1;
+}
+.funnel-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:9px;
+  margin-top:18px;
+  padding-top:15px;
+  border-top:1px solid var(--line);
+}
+.review-content{
+  display:flex;
+  flex-direction:column;
+  gap:13px;
+  margin-top:15px;
+}
+.review-block{
+  overflow:hidden;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:#fbfdff;
+}
+.review-block-head{
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  padding:11px 13px;
+  border-bottom:1px solid var(--line);
+  background:#f5f9fc;
+  color:var(--navy);
+  font-size:12px;
+}
+.review-block-head>span{
+  font-weight:800;
+}
+.review-row{
+  display:flex;
+  justify-content:space-between;
+  gap:16px;
+  padding:11px 13px;
+  border-bottom:1px solid #edf2f6;
+}
+.review-row:last-child{
+  border-bottom:0;
+}
+.review-row strong,
+.review-row small{
+  display:block;
+}
+.review-row strong{
+  color:var(--navy);
+  font-size:12px;
+}
+.review-row small{
+  margin-top:3px;
+  color:var(--muted);
+  font-size:10px;
+}
+.review-row>span{
+  color:#475467;
+  font-size:11px;
+  white-space:nowrap;
+}
+.review-contact-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:1px;
+  background:var(--line);
+}
+.review-contact-grid>div{
+  padding:12px 13px;
+  background:#fff;
+}
+.review-contact-grid small,
+.review-contact-grid strong{
+  display:block;
+}
+.review-contact-grid small{
+  margin-bottom:4px;
+  color:var(--muted);
+  font-size:10px;
+}
+.review-contact-grid strong{
+  color:var(--navy);
+  font-size:12px;
+  overflow-wrap:anywhere;
+}
+@media(max-width:650px){
+  .contact-grid,
+  .review-contact-grid{
+    grid-template-columns:1fr;
+  }
+  .contact-grid .full-width{
+    grid-column:auto;
+  }
+  .funnel-actions{
+    flex-direction:column;
+  }
+  .funnel-actions button{
+    width:100%;
+  }
+  .review-row{
+    flex-direction:column;
+    gap:5px;
+  }
+}

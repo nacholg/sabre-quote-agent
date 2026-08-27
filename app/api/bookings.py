@@ -1,10 +1,19 @@
 from fastapi import APIRouter, HTTPException, status
 
 from app.models.booking import (
+    BookingContactRecord,
+    BookingContactUpdateRequest,
     BookingCreateRequest,
     BookingPassengersResponse,
     BookingPassengersUpdateRequest,
     BookingRecord,
+    BookingReviewResponse,
+)
+from app.services.booking_contact_service import (
+    BookingContactLockedError,
+    BookingContactRevisionConflictError,
+    BookingContactValidationError,
+    get_booking_contact_service,
 )
 from app.services.booking_passenger_service import (
     BookingPassengerLockedError,
@@ -12,6 +21,7 @@ from app.services.booking_passenger_service import (
     BookingRevisionConflictError,
     get_booking_passenger_service,
 )
+from app.services.booking_review_service import get_booking_review_service
 from app.services.booking_repository import (
     BookingIdempotencyConflictError,
     get_booking_repository,
@@ -131,3 +141,73 @@ async def update_booking_passengers(
             status_code=422,
             detail=str(exc),
         ) from exc
+
+
+@router.get(
+    "/bookings/{booking_id}/contact",
+    response_model=BookingContactRecord,
+    summary="Leer contacto del Booking",
+)
+async def get_booking_contact(
+    booking_id: str,
+) -> BookingContactRecord:
+    try:
+        return get_booking_contact_service().get(booking_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Reserva no encontrada: {booking_id}",
+        )
+
+
+@router.put(
+    "/bookings/{booking_id}/contact",
+    response_model=BookingContactRecord,
+    summary="Guardar contacto del Booking",
+)
+async def update_booking_contact(
+    booking_id: str,
+    request: BookingContactUpdateRequest,
+) -> BookingContactRecord:
+    try:
+        return get_booking_contact_service().update(
+            booking_id,
+            request,
+        )
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Reserva no encontrada: {booking_id}",
+        )
+    except BookingContactRevisionConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+    except BookingContactLockedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+    except BookingContactValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get(
+    "/bookings/{booking_id}/review",
+    response_model=BookingReviewResponse,
+    summary="Leer review canónico del Booking",
+)
+async def get_booking_review(
+    booking_id: str,
+) -> BookingReviewResponse:
+    try:
+        return get_booking_review_service().get(booking_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Reserva no encontrada: {booking_id}",
+        )
