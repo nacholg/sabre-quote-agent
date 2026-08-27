@@ -86,6 +86,7 @@ class BookingRepository:
                 "booking_passengers",
                 "booking_contacts",
                 "booking_revalidations",
+                "booking_pnr_attempts",
             )
             if not inspector.has_table(table_name)
         ]

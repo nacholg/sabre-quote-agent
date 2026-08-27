@@ -207,6 +207,51 @@ class BookingRevalidationRow(Base):
     )
 
 
+class BookingPnrAttemptRow(Base):
+    __tablename__ = "booking_pnr_attempts"
+
+    pnr_attempt_id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+    booking_id: Mapped[str] = mapped_column(Text, nullable=False)
+    client_request_id: Mapped[str] = mapped_column(Text, nullable=False)
+    booking_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    accepted_offer_revision_id: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+    revalidation_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    environment: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    confirmation_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    provider_reference: Mapped[str | None] = mapped_column(Text, nullable=True)
+    request_fingerprint: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+    submitted_at: Mapped[str | None] = mapped_column(Text, nullable=True)
+    completed_at: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "booking_id",
+            name="uq_booking_pnr_attempt_booking",
+        ),
+        UniqueConstraint(
+            "client_request_id",
+            name="uq_booking_pnr_attempt_client_request",
+        ),
+        Index(
+            "idx_booking_pnr_attempts_status",
+            "status",
+        ),
+    )
+
+
 class QuoteArtifactRow(Base):
     __tablename__ = "quote_artifacts"
 

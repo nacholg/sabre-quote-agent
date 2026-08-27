@@ -46,9 +46,10 @@ def test_booking_foundation_alembic_upgrade_from_booking_draft(
         "booking_passengers",
         "booking_contacts",
         "booking_revalidations",
+        "booking_pnr_attempts",
     }
     assert expected_booking_tables.issubset(
         set(inspector.get_table_names())
     )
-    assert _database_version(engine) == "20260826_04"
+    assert _database_version(engine) == "20260827_05"
     engine.dispose()

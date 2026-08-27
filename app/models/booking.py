@@ -34,6 +34,16 @@ class RevalidationStatus(StrEnum):
     STALE = "stale"
 
 
+class PnrAttemptStatus(StrEnum):
+    """Persistent lifecycle of one Sabre Create Booking attempt."""
+
+    PREPARED = "prepared"
+    SUBMITTING = "submitting"
+    SUCCEEDED = "succeeded"
+    FAILED_SAFE = "failed_safe"
+    RECONCILIATION_REQUIRED = "reconciliation_required"
+
+
 class BookingOfferSource(StrEnum):
     INITIAL = "initial"
     REVALIDATION = "revalidation"
@@ -202,3 +212,32 @@ class BookingCreatePnrReadinessResponse(BaseModel):
     sabre_passenger_codes: list[str] = Field(default_factory=list)
     reasons: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+
+class BookingCreatePnrRequest(BaseModel):
+    """Tiny browser command. Product/passenger/contact data stay server-side."""
+
+    revision: int = Field(ge=1)
+    client_request_id: UUID
+
+
+class BookingPnrAttemptRecord(BaseModel):
+    pnr_attempt_id: int = Field(ge=1)
+    booking_id: str
+    client_request_id: str
+    booking_revision: int = Field(ge=1)
+    accepted_offer_revision_id: int = Field(ge=1)
+    revalidation_id: int = Field(ge=1)
+    environment: Literal["cert", "prod"]
+    provider: str
+    status: PnrAttemptStatus
+    confirmation_id: str | None = None
+    provider_reference: str | None = None
+    request_fingerprint: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    created_at: str
+    updated_at: str
+    submitted_at: str | None = None
+    completed_at: str | None = None
