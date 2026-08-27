@@ -7,7 +7,11 @@ import httpx
 
 from app.config import Settings
 from app.sabre.auth import SabreTokenProvider
-from app.sabre.errors import SabreAPIError
+from app.sabre.errors import (
+    SabreAPIError,
+    SabreWriteAmbiguousError,
+    SabreWriteNotSentError,
+)
 
 
 class SabreClient:
@@ -84,6 +88,138 @@ class SabreClient:
             except ValueError:
                 snapshot["response_text"] = response.text[:20000]
         self.last_exchange = snapshot
+
+    def _capture_write_exchange(
+        self,
+        *,
+        url: str,
+        response: httpx.Response | None,
+        started: float,
+        error: str | None = None,
+        sensitive: bool,
+    ) -> None:
+        snapshot: dict[str, Any] = {
+            "method": "POST",
+            "url": url,
+            "request_headers": {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "X-Sabre-PCC": self.settings.sabre_pcc,
+            },
+            "elapsed_ms": round(
+                (time.perf_counter() - started) * 1000,
+                2,
+            ),
+            "error": error,
+            "sensitive_payload_omitted": bool(sensitive),
+        }
+        if response is not None:
+            snapshot.update(
+                {
+                    "status_code": response.status_code,
+                    "reason": response.reason_phrase,
+                    "response_headers": dict(response.headers),
+                }
+            )
+        self.last_exchange = snapshot
+
+    async def post_once(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        *,
+        sensitive: bool = False,
+    ) -> dict[str, Any]:
+        """POST exactly once.
+
+        This primitive exists for non-idempotent writes such as Create Booking.
+        It deliberately has no retry loop. Sensitive mode also prevents PII
+        from being copied into last_exchange/support diagnostics.
+        """
+        self._enforce_guardrails(path)
+        url = f"{self.settings.base_url}/{path.lstrip('/')}"
+        started = time.perf_counter()
+        response: httpx.Response | None = None
+
+        try:
+            try:
+                token = await self.tokens.get_token()
+            except Exception as exc:
+                self._capture_write_exchange(
+                    url=url,
+                    response=None,
+                    started=started,
+                    error=f"pre_send:{type(exc).__name__}",
+                    sensitive=sensitive,
+                )
+                raise SabreWriteNotSentError(
+                    "Create Booking no fue enviado: falló la autenticación "
+                    "antes del request."
+                ) from exc
+
+            try:
+                response = await self.http.post(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                        "X-Sabre-PCC": self.settings.sabre_pcc,
+                    },
+                    json=payload,
+                )
+            except (httpx.ConnectTimeout, httpx.ConnectError) as exc:
+                self._capture_write_exchange(
+                    url=url,
+                    response=None,
+                    started=started,
+                    error=type(exc).__name__,
+                    sensitive=sensitive,
+                )
+                raise SabreWriteNotSentError(
+                    "Create Booking no pudo establecer conexión con Sabre."
+                ) from exc
+            except (
+                httpx.TimeoutException,
+                httpx.NetworkError,
+                httpx.RemoteProtocolError,
+            ) as exc:
+                self._capture_write_exchange(
+                    url=url,
+                    response=None,
+                    started=started,
+                    error=type(exc).__name__,
+                    sensitive=sensitive,
+                )
+                raise SabreWriteAmbiguousError(
+                    "El resultado de Create Booking es ambiguo; "
+                    "no se debe reintentar automáticamente."
+                ) from exc
+
+            self._capture_write_exchange(
+                url=url,
+                response=response,
+                started=started,
+                sensitive=sensitive,
+            )
+
+            if response.is_error:
+                raise SabreAPIError(
+                    response.status_code,
+                    response.reason_phrase,
+                    response.text[:5000],
+                )
+
+            try:
+                return response.json()
+            except ValueError as exc:
+                raise SabreWriteAmbiguousError(
+                    "Sabre respondió éxito HTTP pero el body no pudo "
+                    "interpretarse; el resultado debe reconciliarse."
+                ) from exc
+
+        except (SabreAPIError, SabreWriteNotSentError, SabreWriteAmbiguousError):
+            raise
 
     async def get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         self._enforce_guardrails(path)

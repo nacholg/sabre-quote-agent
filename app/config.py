@@ -102,6 +102,12 @@ class Settings(BaseSettings):
     sabre_v3_token_path: str = "/v3/auth/token"
     sabre_shopping_path: str = "/v5/offers/shop"
     sabre_revalidate_path: str = "/v5/shop/flights/revalidate"
+    sabre_create_booking_path: str = "/v1/trip/orders/createBooking"
+
+    # Create Booking is a write and must be explicitly enabled.
+    # PROD additionally requires its own second opt-in.
+    sabre_create_booking_enabled: bool = False
+    sabre_create_booking_prod_enabled: bool = False
 
     # SOAP / Sabre Web Services.
     # Can be overridden in .env/.env.cert with SABRE_SOAP_ENDPOINT.

@@ -67,16 +67,16 @@ def test_v0315_fastapi_has_no_pnr_creation_write_route() -> None:
         ), (path, methods)
 
 
-def test_v0315_application_code_contains_no_create_booking_endpoint() -> None:
+def test_v0320_create_booking_endpoint_is_centralized_in_config() -> None:
     exact_endpoint = CREATE_BOOKING_PATH.lower()
 
     offenders = []
     for path in Path("app").rglob("*.py"):
         text = path.read_text(encoding="utf-8").lower()
         if exact_endpoint in text:
-            offenders.append(str(path))
+            offenders.append(path.as_posix())
 
-    assert offenders == []
+    assert offenders == ["app/config.py"]
 
 
 def test_v0315_ui_has_no_create_pnr_action() -> None:
