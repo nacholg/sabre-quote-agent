@@ -2,6 +2,7 @@ import asyncio
 import time
 from typing import Any
 from urllib.parse import urlparse
+from uuid import uuid4
 
 import httpx
 
@@ -95,6 +96,7 @@ class SabreClient:
         url: str,
         response: httpx.Response | None,
         started: float,
+        conversation_id: str,
         error: str | None = None,
         sensitive: bool,
     ) -> None:
@@ -105,7 +107,9 @@ class SabreClient:
                 "Accept": "application/json",
                 "Content-Type": "application/json",
                 "X-Sabre-PCC": self.settings.sabre_pcc,
+                "Conversation-ID": conversation_id,
             },
+            "conversation_id": conversation_id,
             "elapsed_ms": round(
                 (time.perf_counter() - started) * 1000,
                 2,
@@ -140,6 +144,7 @@ class SabreClient:
         url = f"{self.settings.base_url}/{path.lstrip('/')}"
         started = time.perf_counter()
         response: httpx.Response | None = None
+        conversation_id = str(uuid4())
 
         try:
             try:
@@ -149,6 +154,7 @@ class SabreClient:
                     url=url,
                     response=None,
                     started=started,
+                    conversation_id=conversation_id,
                     error=f"pre_send:{type(exc).__name__}",
                     sensitive=sensitive,
                 )
@@ -165,6 +171,7 @@ class SabreClient:
                         "Accept": "application/json",
                         "Content-Type": "application/json",
                         "X-Sabre-PCC": self.settings.sabre_pcc,
+                        "Conversation-ID": conversation_id,
                     },
                     json=payload,
                 )
@@ -173,6 +180,7 @@ class SabreClient:
                     url=url,
                     response=None,
                     started=started,
+                    conversation_id=conversation_id,
                     error=type(exc).__name__,
                     sensitive=sensitive,
                 )
@@ -188,6 +196,7 @@ class SabreClient:
                     url=url,
                     response=None,
                     started=started,
+                    conversation_id=conversation_id,
                     error=type(exc).__name__,
                     sensitive=sensitive,
                 )
@@ -200,6 +209,7 @@ class SabreClient:
                 url=url,
                 response=response,
                 started=started,
+                conversation_id=conversation_id,
                 sensitive=sensitive,
             )
 

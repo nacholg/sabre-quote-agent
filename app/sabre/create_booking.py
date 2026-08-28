@@ -20,8 +20,15 @@ _DIAGNOSTIC_SIGNAL_KEYS = {
     "confirmationid",
     "conversationid",
     "detail",
+    "description",
+    "details",
     "errorcode",
+    "fieldname",
+    "fieldpath",
+    "fieldvalue",
     "message",
+    "reason",
+    "requestid",
     "severity",
     "status",
     "statuscode",
@@ -195,6 +202,25 @@ def _diagnostic_suffix(
     return f" diagnostic={rendered[:800]}"
 
 
+def _attach_exchange_metadata(
+    diagnostic: dict[str, object] | None,
+    client: object,
+) -> dict[str, object] | None:
+    if diagnostic is None:
+        return None
+    exchange = getattr(client, "last_exchange", None)
+    if not isinstance(exchange, dict):
+        return diagnostic
+
+    conversation_id = exchange.get("conversation_id")
+    status_code = exchange.get("status_code")
+    if isinstance(conversation_id, str) and conversation_id.strip():
+        diagnostic["conversation_id"] = conversation_id.strip()
+    if isinstance(status_code, int):
+        diagnostic["http_status"] = status_code
+    return diagnostic
+
+
 class SabreCreateBookingDisabledError(RuntimeError):
     """Create Booking has not been explicitly enabled for this runtime."""
 
@@ -327,9 +353,12 @@ class SabreCreateBookingProvider:
                 ) from exc
             except SabreAPIError as exc:
                 code = f"HTTP_{exc.status_code}"
-                diagnostic = _diagnostic_from_response_text(
-                    exc.response_body,
-                    payload,
+                diagnostic = _attach_exchange_metadata(
+                    _diagnostic_from_response_text(
+                        exc.response_body,
+                        payload,
+                    ),
+                    client,
                 )
                 if exc.status_code >= 500:
                     raise SabreCreateBookingAmbiguousFailure(
@@ -348,9 +377,12 @@ class SabreCreateBookingProvider:
                 {"confirmationId"},
             )
             if not confirmation_id:
-                diagnostic = sanitize_create_booking_response(
-                    body,
-                    payload,
+                diagnostic = _attach_exchange_metadata(
+                    sanitize_create_booking_response(
+                        body,
+                        payload,
+                    ),
+                    client,
                 )
                 raise SabreCreateBookingAmbiguousFailure(
                     "MISSING_CONFIRMATION_ID",

@@ -420,3 +420,88 @@ async def test_http_error_body_is_sanitized_into_diagnostic() -> None:
     assert "INVALID_INPUT" in rendered
     assert "CERTTEST" not in rendered
     assert "test@example.com" not in rendered
+
+@pytest.mark.asyncio
+async def test_post_once_sends_conversation_id_header() -> None:
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["conversation_id"] = request.headers.get("Conversation-ID")
+        return httpx.Response(
+            200,
+            json={"confirmationId": "ABC123"},
+            request=request,
+        )
+
+    client = SabreClient(_settings())
+    await client.http.aclose()
+    client.http = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler)
+    )
+    client.tokens = FakeTokens()
+
+    try:
+        result = await client.post_once(
+            "/v1/trip/orders/createBooking",
+            {"travelers": []},
+            sensitive=True,
+        )
+    finally:
+        await client.close()
+
+    assert result["confirmationId"] == "ABC123"
+    assert seen["conversation_id"]
+    assert client.last_exchange is not None
+    assert (
+        client.last_exchange["request_headers"]["Conversation-ID"]
+        == seen["conversation_id"]
+    )
+    assert client.last_exchange["conversation_id"] == seen["conversation_id"]
+
+
+@pytest.mark.asyncio
+async def test_sanitized_diagnostic_keeps_error_description_and_field_path() -> None:
+    payload = {
+        "travelers": [{"givenName": "CERTTEST"}],
+        "contactInfo": {"emails": ["test@example.com"]},
+    }
+    client = FakeClient(
+        result={
+            "errors": [
+                {
+                    "category": "APPLICATION_ERROR",
+                    "type": "UNABLE_TO_BOOK_FLIGHTS",
+                    "description": (
+                        "Traveler CERTTEST could not be booked; "
+                        "contact test@example.com"
+                    ),
+                    "fieldName": "bookingClass",
+                    "fieldPath": "flightDetails.flights[0].bookingClass",
+                    "fieldValue": "O",
+                    "reason": "HOST_REJECTED",
+                }
+            ]
+        }
+    )
+    provider = SabreCreateBookingProvider(
+        settings=_settings(),
+        client=client,
+    )
+
+    with pytest.raises(
+        SabreCreateBookingAmbiguousFailure
+    ) as caught:
+        await provider.create_booking(
+            payload,
+            environment="cert",
+        )
+
+    rendered = json.dumps(
+        caught.value.diagnostic,
+        ensure_ascii=False,
+    )
+    assert "UNABLE_TO_BOOK_FLIGHTS" in rendered
+    assert "flightDetails.flights[0].bookingClass" in rendered
+    assert "HOST_REJECTED" in rendered
+    assert "CERTTEST" not in rendered
+    assert "test@example.com" not in rendered
