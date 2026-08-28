@@ -222,3 +222,43 @@ def test_part2_has_no_network_write():
     assert "httpx" not in combined
     assert ".post(" not in combined
     assert "trip/orders/createbooking" not in combined
+
+@pytest.mark.asyncio
+async def test_builder_can_explicitly_omit_create_booking_flight_pricing(
+    tmp_path,
+):
+    snapshot = _snapshot()
+    repository, booking_id = await _ready(
+        tmp_path,
+        snapshot,
+        [{
+            "slot_index": 1,
+            "given_name": "TEST",
+            "surname": "PASSENGER",
+            "date_of_birth": "1985-04-15",
+            "gender": "M",
+        }],
+    )
+
+    default_builder = BookingCreatePnrPayloadBuilder(
+        booking_repository=repository
+    )
+    no_pricing_builder = BookingCreatePnrPayloadBuilder(
+        booking_repository=repository,
+        include_flight_pricing=False,
+    )
+
+    default_payload, default_fingerprint = (
+        default_builder.build_with_fingerprint(booking_id)
+    )
+    no_pricing_payload, no_pricing_fingerprint = (
+        no_pricing_builder.build_with_fingerprint(booking_id)
+    )
+
+    assert default_payload["flightDetails"]["flightPricing"]
+    assert no_pricing_payload["flightDetails"]["flightPricing"] == []
+    assert default_fingerprint != no_pricing_fingerprint
+    assert (
+        no_pricing_fingerprint
+        == create_booking_payload_fingerprint(no_pricing_payload)
+    )

@@ -61,3 +61,10 @@ def test_cert_write_harness_surfaces_reconciliation_without_retry():
 def test_cert_write_harness_prints_persisted_safe_diagnostic():
     lower = EXECUTE.lower()
     assert "error_message=" in lower
+
+def test_cert_harness_has_explicit_no_flight_pricing_experiment():
+    lower = EXECUTE.lower()
+    assert "--omit-flight-pricing" in lower
+    assert "include_flight_pricing=not omit_flight_pricing" in lower
+    assert "create_booking_flight_pricing=" in lower
+    assert "selected_fare_currency=" in lower

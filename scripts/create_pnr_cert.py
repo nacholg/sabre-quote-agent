@@ -40,7 +40,11 @@ def _flight_summary(booking) -> list[str]:
     return result
 
 
-def _preview(booking_id: str) -> tuple[object, str]:
+def _preview(
+    booking_id: str,
+    *,
+    omit_flight_pricing: bool = False,
+) -> tuple[object, str]:
     repository = get_booking_repository()
     booking = repository.get(booking_id)
     if booking is None:
@@ -67,7 +71,8 @@ def _preview(booking_id: str) -> tuple[object, str]:
         )
 
     _, fingerprint = BookingCreatePnrPayloadBuilder(
-        booking_repository=repository
+        booking_repository=repository,
+        include_flight_pricing=not omit_flight_pricing,
     ).build_with_fingerprint(booking_id)
 
     print("=== CREATE BOOKING CERT PREVIEW ===")
@@ -82,6 +87,14 @@ def _preview(booking_id: str) -> tuple[object, str]:
     for flight in _flight_summary(booking):
         print(f"flight={flight}")
     print(f"request_fingerprint={fingerprint}")
+    print(
+        "create_booking_flight_pricing="
+        + ("omitted" if omit_flight_pricing else "enabled")
+    )
+    revision = booking.accepted_offer_revision
+    if revision is not None:
+        print(f"selected_fare_currency={revision.snapshot.fare.currency}")
+        print(f"selected_fare_total={revision.snapshot.fare.total_price}")
     if readiness.warnings:
         print("warnings=" + ",".join(readiness.warnings))
     print("PII omitted from preview.")
@@ -115,6 +128,8 @@ def _cert_settings_for_write():
 async def _execute(
     booking_id: str,
     client_request_id: UUID,
+    *,
+    omit_flight_pricing: bool = False,
 ) -> int:
     repository = get_booking_repository()
     booking = repository.get(booking_id)
@@ -123,8 +138,13 @@ async def _execute(
 
     settings = _cert_settings_for_write()
     provider = SabreCreateBookingProvider(settings=settings)
+    payload_builder = BookingCreatePnrPayloadBuilder(
+        booking_repository=repository,
+        include_flight_pricing=not omit_flight_pricing,
+    )
     service = BookingPnrExecutionService(
         booking_repository=repository,
+        payload_builder=payload_builder,
         provider=provider,
     )
 
@@ -202,9 +222,20 @@ def main() -> int:
         action="store_true",
         help="Actually send Create Booking to Sabre CERT.",
     )
+    parser.add_argument(
+        "--omit-flight-pricing",
+        action="store_true",
+        help=(
+            "CERT experiment only: send flightPricing=[] so Create Booking "
+            "does not request its normal automatic flight pricing."
+        ),
+    )
     args = parser.parse_args()
 
-    booking, _ = _preview(args.booking_id)
+    booking, _ = _preview(
+        args.booking_id,
+        omit_flight_pricing=args.omit_flight_pricing,
+    )
 
     if not args.confirm_cert_write:
         suggested = uuid4()
@@ -213,9 +244,15 @@ def main() -> int:
         print(
             "For the actual CERT write, reuse one explicit UUID, e.g.:"
         )
+        optional_mode = (
+            "--omit-flight-pricing "
+            if args.omit_flight_pricing
+            else ""
+        )
         print(
             "python scripts/create_pnr_cert.py "
             f"{booking.booking_id} "
+            f"{optional_mode}"
             f"--client-request-id {suggested} "
             "--confirm-cert-write"
         )
@@ -234,7 +271,11 @@ def main() -> int:
         ) from exc
 
     return asyncio.run(
-        _execute(booking.booking_id, request_id)
+        _execute(
+            booking.booking_id,
+            request_id,
+            omit_flight_pricing=args.omit_flight_pricing,
+        )
     )
 
 

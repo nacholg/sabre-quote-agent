@@ -62,8 +62,14 @@ def _traveler_given_name(given_name: str | None, middle_name: str | None) -> str
 class BookingCreatePnrPayloadBuilder:
     """Pure dry-run Create Booking builder. No HTTP calls and no mutations."""
 
-    def __init__(self, *, booking_repository: BookingRepository | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        booking_repository: BookingRepository | None = None,
+        include_flight_pricing: bool = True,
+    ) -> None:
         self.booking_repository = booking_repository or get_booking_repository()
+        self.include_flight_pricing = include_flight_pricing
         self.readiness_service = BookingCreatePnrReadinessService(
             booking_repository=self.booking_repository
         )
@@ -177,6 +183,8 @@ class BookingCreatePnrPayloadBuilder:
         if validating:
             pricing["validatingAirlineCode"] = validating
 
+        flight_pricing = [pricing] if self.include_flight_pricing else []
+
         return {
             "travelers": travelers,
             "contactInfo": {
@@ -186,7 +194,7 @@ class BookingCreatePnrPayloadBuilder:
             "flightDetails": {
                 "haltOnFlightStatusCodes": list(_HALT_ON_FLIGHT_STATUS_CODES),
                 "flights": self._flights(snapshot),
-                "flightPricing": [pricing],
+                "flightPricing": flight_pricing,
             },
         }
 
