@@ -109,6 +109,12 @@ class Settings(BaseSettings):
     sabre_create_booking_enabled: bool = False
     sabre_create_booking_prod_enabled: bool = False
 
+    # Experimental stateful SOAP PQ retain/write gate. CERT harness only.
+    sabre_pnr_pricing_enabled: bool = False
+
+    # Experimental existing-PNR Secure Flight write. CERT harness only.
+    sabre_secure_flight_enabled: bool = False
+
     # SOAP / Sabre Web Services.
     # Can be overridden in .env/.env.cert with SABRE_SOAP_ENDPOINT.
     sabre_soap_endpoint: str | None = None
