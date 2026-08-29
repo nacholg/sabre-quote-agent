@@ -4,7 +4,11 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
-from app.models.itinerary import FlightSegment
+from app.models.itinerary import (
+    BrandFeature,
+    BrandedComponent,
+    FlightSegment,
+)
 from app.models.quote_request import SearchLeg
 
 
@@ -38,6 +42,9 @@ class CommercialFare(BaseModel):
     passenger_prices: list[CommercialPassengerPrice] = Field(default_factory=list)
     fare_basis_codes: list[str] = Field(default_factory=list)
     validating_carrier: str | None = None
+    pricing_modifier: str | None = None
+    branded_components: list[BrandedComponent] = Field(default_factory=list)
+    brand_features: list[BrandFeature] = Field(default_factory=list)
     q1_amount: Decimal | None = None
     q1_currency: str | None = None
     rules: CommercialFareRules = Field(default_factory=CommercialFareRules)
