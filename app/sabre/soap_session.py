@@ -119,6 +119,70 @@ def parse_session_token(xml_text: str) -> str | None:
     return None
 
 
+def parse_session_diagnostic(xml_text: str) -> list[str]:
+    """Extract safe SessionCreate response signals without tokens/raw XML."""
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return ["response_xml=invalid"]
+
+    safe_tags = {
+        "Fault",
+        "faultcode",
+        "faultstring",
+        "ApplicationResults",
+        "Error",
+        "Warning",
+        "Message",
+        "Description",
+        "Status",
+        "SystemSpecificResults",
+    }
+    blocked_tags = {
+        "BinarySecurityToken",
+        "Username",
+        "Password",
+        "ClientId",
+        "ClientSecret",
+    }
+    safe_attrs = {"status", "type", "code", "ShortText", "message"}
+    signals: list[str] = []
+
+    for node in root.iter():
+        local = _local(node.tag)
+        if local in blocked_tags or local not in safe_tags:
+            continue
+
+        for key in safe_attrs:
+            value = (node.attrib.get(key) or "").strip()
+            if value:
+                signals.append(f"{local}.{key}={value[:180]}")
+
+        value = (node.text or "").strip()
+        if value and len(value) <= 240:
+            signals.append(f"{local}.text={value}")
+
+        if len(signals) >= 16:
+            break
+
+    return signals or ["response_xml=no_safe_diagnostic_signals"]
+
+
+def _redact_session_diagnostic(
+    signals: list[str],
+    sensitive_values: list[str],
+) -> list[str]:
+    result: list[str] = []
+    for signal in signals:
+        redacted = signal
+        for sensitive in sensitive_values:
+            value = (sensitive or "").strip()
+            if len(value) >= 3:
+                redacted = redacted.replace(value, "[REDACTED]")
+        result.append(redacted)
+    return result
+
+
 class SabreSoapSessionService:
     def __init__(
         self,
@@ -146,9 +210,29 @@ class SabreSoapSessionService:
         token = parse_session_token(transport.text)
 
         if not transport.ok or not token:
+            signals = parse_session_diagnostic(transport.text)
+            sensitive_values = [
+                (self.settings.sabre_username or "").strip(),
+                (self.settings.sabre_epr or "").strip(),
+                self.settings.resolved_username.strip(),
+                (
+                    self.settings.sabre_password.get_secret_value()
+                    if self.settings.sabre_password is not None
+                    else ""
+                ),
+                self.settings.sabre_client_id.get_secret_value(),
+                self.settings.sabre_client_secret.get_secret_value(),
+            ]
+            signals = _redact_session_diagnostic(
+                signals,
+                sensitive_values,
+            )
+            diagnostic = "; ".join(signals)[:900]
             raise RuntimeError(
-                "Sabre SOAP SessionCreateRQ no devolvió un "
-                "BinarySecurityToken válido."
+                "Sabre SOAP SessionCreateRQ falló: "
+                f"HTTP={transport.status_code}; "
+                f"content_type={transport.content_type or '-'}; "
+                f"diagnostic={diagnostic}"
             )
 
         return SoapSession(
