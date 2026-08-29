@@ -141,6 +141,12 @@ def build_revalidate_request(
     groups = group_segments_by_legs(snapshot, legs)
 
     origin_destinations: list[dict[str, Any]] = []
+    branded = bool(
+        str(snapshot.fare.brand_code or "").strip()
+        or str(snapshot.fare.brand_name or "").strip()
+        or snapshot.fare.branded_components
+    )
+
     for index, group in enumerate(groups, start=1):
         flights = []
         for segment in group:
@@ -199,9 +205,39 @@ def build_revalidate_request(
         ],
     }
     if snapshot.fare.currency:
-        traveler_summary["PriceRequestInformation"] = {
+        price_request_information: dict[str, Any] = {
             "CurrencyCode": snapshot.fare.currency
         }
+        brand_id = str(snapshot.fare.brand_code or "").strip().upper()
+        if brand_id:
+            price_request_information["TPA_Extensions"] = {
+                "BrandedFareIndicators": {
+                    "SingleBrandedFare": True,
+                    "MultipleBrandedFares": True,
+                    "ReturnBrandAncillaries": True,
+                    "UpsellLimit": 3,
+                    "BrandFilters": {
+                        "Brand": [
+                            {
+                                "Code": brand_id,
+                                "PreferLevel": "Preferred",
+                            }
+                        ]
+                    },
+                }
+            }
+        elif branded:
+            # Legacy fallback only: branded metadata exists but there is no
+            # exact Sabre Brand ID to lock. Never use brand_name as Code.
+            price_request_information["TPA_Extensions"] = {
+                "BrandedFareIndicators": {
+                    "MultipleBrandedFares": True,
+                    "ReturnBrandAncillaries": True,
+                }
+            }
+        traveler_summary["PriceRequestInformation"] = (
+            price_request_information
+        )
 
     return {
         "OTA_AirLowFareSearchRQ": {

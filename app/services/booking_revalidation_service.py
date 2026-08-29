@@ -212,17 +212,22 @@ def _candidate_fare_score(
         candidate.brand_code or candidate.brand_name or ""
     ).strip().upper()
 
+    if not source_brand:
+        brand_score = 0
+    elif candidate_brand == source_brand:
+        brand_score = 0
+    elif not candidate_brand:
+        brand_score = 2
+    else:
+        brand_score = 1
+
     return (
         0 if candidate.currency.upper() == source.currency.upper() else 1,
         0 if candidate.cabin.lower() == source.cabin.lower() else 1,
         0 if source_basis and candidate_basis == source_basis else (
             0 if not source_basis else 1
         ),
-        0 if (
-            not source_brand
-            or not candidate_brand
-            or source_brand == candidate_brand
-        ) else 1,
+        brand_score,
         abs(_candidate_total(candidate) - _source_total(source)),
     )
 
@@ -287,12 +292,37 @@ def _commercial_candidate_fare(
         passenger_prices=_commercial_passenger_prices(fare),
         fare_basis_codes=list(fare.fare_basis_codes or []),
         validating_carrier=fare.validating_carrier,
+        pricing_modifier=fare.pricing_modifier,
+        branded_components=list(fare.branded_components or []),
+        brand_features=list(fare.brand_features or []),
         q1_amount=fare.q1_amount,
         q1_currency=fare.q1_currency,
         # Revalidate verifies availability/pricing. Existing commercial rules
         # remain attached until a later Air Rules refresh explicitly replaces them.
         rules=source.rules,
     )
+
+
+def _branded_component_signature(
+    fare: CommercialFare,
+) -> tuple[tuple[str, ...], ...]:
+    result: list[tuple[str, ...]] = []
+    for item in fare.branded_components:
+        result.append(
+            (
+                str(item.begin_airport or "").strip().upper(),
+                str(item.end_airport or "").strip().upper(),
+                str(item.fare_basis_code or "").strip().upper(),
+                str(item.governing_carrier or "").strip().upper(),
+                str(item.vendor_code or "").strip().upper(),
+                str(item.tariff or "").strip().upper(),
+                str(item.rule_number or "").strip().upper(),
+                str(item.brand_code or "").strip().upper(),
+                str(item.brand_name or "").strip().upper(),
+                str(item.program_code or "").strip().upper(),
+            )
+        )
+    return tuple(result)
 
 
 def _fare_identity_changes(
@@ -339,13 +369,36 @@ def _fare_identity_changes(
 
     source_brand = source.brand_code or source.brand_name
     candidate_brand = candidate.brand_code or candidate.brand_name
-    if (
-        source_brand
-        and candidate_brand
-        and source_brand.strip().upper()
+    if source_brand and (
+        not candidate_brand
+        or source_brand.strip().upper()
         != candidate_brand.strip().upper()
     ):
         add("brand", source_brand, candidate_brand)
+
+    source_modifier = str(source.pricing_modifier or "").strip().upper()
+    candidate_modifier = str(candidate.pricing_modifier or "").strip().upper()
+    if (
+        source_modifier
+        and source_modifier != candidate_modifier
+    ):
+        add(
+            "pricing_modifier",
+            source.pricing_modifier,
+            candidate.pricing_modifier,
+        )
+
+    source_components = _branded_component_signature(source)
+    candidate_components = _branded_component_signature(candidate)
+    if (
+        source_components
+        and source_components != candidate_components
+    ):
+        add(
+            "branded_components",
+            str(source_components),
+            str(candidate_components),
+        )
 
     return changes
 
