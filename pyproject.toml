@@ -1,7 +1,7 @@
 [project]
 name = "sabre-quote-agent"
-version = "0.21.1"
-description = "MVP read-only para búsquedas y cotizaciones aéreas con Sabre"
+dynamic = ["version"]
+description = "Agente de cotización y booking aéreo con Sabre y writes protegidos por feature flags"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "fastapi>=0.115,<1",
@@ -26,6 +26,9 @@ asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 100
+
+[tool.setuptools.dynamic]
+version = {attr = "app.version.__version__"}
 
 [tool.setuptools.packages.find]
 include = ["app*"]

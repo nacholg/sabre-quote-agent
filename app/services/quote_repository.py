@@ -12,9 +12,11 @@ from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.database import database_url as configured_database_url
-from app.db.models import QuoteArtifactRow, QuoteFareSelectionRow, QuoteRow
+from app.db.models import QuoteArtifactRow, QuoteBookingDraftRow, QuoteFareSelectionRow, QuoteRow
 from app.models.api import (
     AgentInterpretation,
+    BookingDraftRecord,
+    BookingDraftUpdate,
     QuoteSearchAPIRequest,
     QuoteSearchAPIResponse,
     StoredQuoteRecord,
@@ -30,6 +32,7 @@ from app.models.api import (
 
 QUOTE_TABLE = QuoteRow.__table__
 FARE_SELECTION_TABLE = QuoteFareSelectionRow.__table__
+BOOKING_DRAFT_TABLE = QuoteBookingDraftRow.__table__
 ARTIFACT_TABLE = QuoteArtifactRow.__table__
 
 
@@ -140,6 +143,7 @@ class QuoteRepository:
                 "quotes",
                 "quote_artifacts",
                 "quote_fare_selections",
+                "quote_booking_drafts",
             )
             if not inspector.has_table(table_name)
         ]
@@ -620,6 +624,117 @@ class QuoteRepository:
             selected_ranks=[],
             selected_count=0,
             selected_fares=[],
+        )
+
+    def get_booking_draft(
+        self,
+        quote_id: str,
+    ) -> BookingDraftRecord:
+        if self.get(quote_id) is None:
+            raise KeyError(quote_id)
+
+        with self.engine.connect() as connection:
+            row = (
+                connection.execute(
+                    select(BOOKING_DRAFT_TABLE).where(
+                        BOOKING_DRAFT_TABLE.c.quote_id == quote_id
+                    )
+                )
+                .mappings()
+                .first()
+            )
+
+        if row is None:
+            return BookingDraftRecord(
+                quote_id=quote_id,
+                passengers=[],
+                contact={},
+                received_from=None,
+                remarks=None,
+                updated_at=None,
+            )
+
+        return BookingDraftRecord(
+            quote_id=quote_id,
+            passengers=json.loads(row["passengers_json"] or "[]"),
+            contact=json.loads(row["contact_json"] or "{}"),
+            received_from=row["received_from"],
+            remarks=row["remarks"],
+            updated_at=row["updated_at"],
+        )
+
+    def save_booking_draft(
+        self,
+        quote_id: str,
+        draft: BookingDraftUpdate,
+    ) -> BookingDraftRecord:
+        self.assert_latest(quote_id)
+        now = _utc_now()
+
+        values = {
+            "quote_id": quote_id,
+            "passengers_json": json.dumps(
+                [
+                    passenger.model_dump(mode="json")
+                    for passenger in draft.passengers
+                ],
+                ensure_ascii=False,
+            ),
+            "contact_json": json.dumps(
+                draft.contact.model_dump(mode="json"),
+                ensure_ascii=False,
+            ),
+            "received_from": draft.received_from,
+            "remarks": draft.remarks,
+            "updated_at": now,
+        }
+
+        with self.engine.begin() as connection:
+            exists = connection.execute(
+                select(BOOKING_DRAFT_TABLE.c.quote_id).where(
+                    BOOKING_DRAFT_TABLE.c.quote_id == quote_id
+                )
+            ).scalar_one_or_none()
+
+            if exists is None:
+                connection.execute(
+                    insert(BOOKING_DRAFT_TABLE).values(**values)
+                )
+            else:
+                connection.execute(
+                    update(BOOKING_DRAFT_TABLE)
+                    .where(
+                        BOOKING_DRAFT_TABLE.c.quote_id == quote_id
+                    )
+                    .values(**values)
+                )
+
+        return BookingDraftRecord(
+            quote_id=quote_id,
+            updated_at=now,
+            **draft.model_dump(),
+        )
+
+    def clear_booking_draft(
+        self,
+        quote_id: str,
+    ) -> BookingDraftRecord:
+        self.assert_latest(quote_id)
+
+        with self.engine.begin() as connection:
+            connection.execute(
+                delete(BOOKING_DRAFT_TABLE).where(
+                    BOOKING_DRAFT_TABLE.c.quote_id == quote_id
+                )
+            )
+
+        return BookingDraftRecord(
+            quote_id=quote_id,
+            passengers=[],
+            contact={},
+            received_from=None,
+            remarks=None,
+            updated_at=None,
         )
 
     def update_workflow(

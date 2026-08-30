@@ -4,10 +4,11 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import SabreEnvironmentMismatchError, runtime_environment_status
-from app.models.api import AgentQuoteRequest, AgentQuoteResponse, FareRuleAuditResponse, QuoteRenderResponse, QuoteSearchAPIRequest, QuoteSearchAPIResponse, QuoteSelectionRequest, QuoteSelectionResponse, StoredQuoteRecord, StoredQuoteSummary, QuoteWorkflowUpdate, QuoteWorkflowResponse, QuoteRefreshResponse
+from app.models.api import AgentQuoteRequest, AgentQuoteResponse, BookingDraftRecord, BookingDraftUpdate, BookingReadinessResponse, FareRuleAuditResponse, QuoteRenderResponse, QuoteSearchAPIRequest, QuoteSearchAPIResponse, QuoteSelectionRequest, QuoteSelectionResponse, StoredQuoteRecord, StoredQuoteSummary, QuoteWorkflowUpdate, QuoteWorkflowResponse, QuoteRefreshResponse
 from app.models.commercial_quote import CommercialQuote
 from app.models.api import QuoteArtifactCreate, QuoteArtifactRecord, QuoteVersionHistory
 from app.models.api import QuoteModificationRequest, QuoteModificationResponse
@@ -22,15 +23,28 @@ from app.services.fare_rule_response import prepare_fare_rule_response
 from app.services.reference_repository import get_reference_repository
 from app.services.quote_refresh import refresh_stored_quote
 from app.services.quote_modification import modify_stored_quote
+from app.services.booking_readiness import assess_booking_readiness
+from app.api.bookings import router as booking_router
+from app.version import __version__
 
 app = FastAPI(
     title="Sabre Quote Agent",
-    version="0.21.1",
+    version=__version__,
     description="API read-only para buscar, normalizar y presentar cotizaciones Sabre BFM.",
 )
+app.include_router(booking_router)
 
 
-WEB_INDEX = Path(__file__).resolve().parent / "web" / "index.html"
+WEB_ROOT = Path(__file__).resolve().parent / "web"
+WEB_INDEX = WEB_ROOT / "index.html"
+WEB_BOOKING = WEB_ROOT / "booking.html"
+WEB_ASSETS = WEB_ROOT / "assets"
+
+app.mount(
+    "/app/assets",
+    StaticFiles(directory=WEB_ASSETS),
+    name="app-assets",
+)
 
 
 _DATABASE_UNAVAILABLE_DETAIL = (
@@ -66,6 +80,15 @@ async def web_app() -> HTMLResponse:
     return HTMLResponse(WEB_INDEX.read_text(encoding="utf-8"))
 
 
+@app.get(
+    "/app/bookings/{booking_id}",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+async def booking_web_app(booking_id: str) -> HTMLResponse:
+    return HTMLResponse(WEB_BOOKING.read_text(encoding="utf-8"))
+
+
 @app.get("/health")
 async def health() -> dict[str, object]:
     database: dict[str, object] = {
@@ -86,7 +109,7 @@ async def health() -> dict[str, object]:
     return {
         "status": "ok" if database["status"] == "ok" else "degraded",
         "service": "sabre-quote-agent",
-        "version": "0.21.1",
+        "version": __version__,
         "database": database,
     }
 
@@ -323,6 +346,93 @@ async def clear_quote_selection(quote_id: str) -> QuoteSelectionResponse:
         raise HTTPException(status_code=404, detail=f"Cotización no encontrada: {quote_id}")
     except QuoteVersionConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get(
+    "/quotes/{quote_id}/booking-draft",
+    response_model=BookingDraftRecord,
+    summary="Leer borrador de reserva",
+)
+async def get_booking_draft(
+    quote_id: str,
+) -> BookingDraftRecord:
+    try:
+        return get_quote_repository().get_booking_draft(quote_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Cotización no encontrada: {quote_id}",
+        )
+
+
+@app.put(
+    "/quotes/{quote_id}/booking-draft",
+    response_model=BookingDraftRecord,
+    summary="Guardar datos previos a Create PNR",
+)
+async def save_booking_draft(
+    quote_id: str,
+    request: BookingDraftUpdate,
+) -> BookingDraftRecord:
+    try:
+        return get_quote_repository().save_booking_draft(
+            quote_id,
+            request,
+        )
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Cotización no encontrada: {quote_id}",
+        )
+    except QuoteVersionConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+
+
+@app.delete(
+    "/quotes/{quote_id}/booking-draft",
+    response_model=BookingDraftRecord,
+    summary="Eliminar borrador de reserva",
+)
+async def clear_booking_draft(
+    quote_id: str,
+) -> BookingDraftRecord:
+    try:
+        return get_quote_repository().clear_booking_draft(
+            quote_id
+        )
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Cotización no encontrada: {quote_id}",
+        )
+    except QuoteVersionConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+
+
+@app.get(
+    "/quotes/{quote_id}/booking-readiness",
+    response_model=BookingReadinessResponse,
+    summary="Validar si una cotización está lista para Create PNR",
+)
+async def booking_readiness(
+    quote_id: str,
+) -> BookingReadinessResponse:
+    repository = get_quote_repository()
+    record = repository.get(quote_id)
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Cotización no encontrada: {quote_id}",
+        )
+
+    draft = repository.get_booking_draft(quote_id)
+    return assess_booking_readiness(record, draft)
 
 
 @app.get("/quotes/{quote_id}/render", response_model=QuoteRenderResponse)

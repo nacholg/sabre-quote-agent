@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Patagonik Travel · Booking</title>
+  <meta name="theme-color" content="#0f2742">
+  <link rel="stylesheet" href="/app/assets/booking.css">
+</head>
+<body>
+  <header class="booking-header">
+    <a class="brand" href="/app" aria-label="Volver a cotizaciones">
+      <span class="brand-mark">P</span>
+      <span>
+        <strong>Patagonik Travel</strong>
+        <small>Booking workspace</small>
+      </span>
+    </a>
+    <div class="booking-head-meta">
+      <span id="bookingStatus" class="status-pill">Cargando…</span>
+      <strong id="bookingId">Booking</strong>
+    </div>
+  </header>
+
+  <main class="booking-page">
+    <nav class="stepper" aria-label="Progreso de reserva">
+      <div class="step active" data-funnel-step="passengers" aria-current="step">
+        <span>1</span>
+        <strong>Pasajeros</strong>
+      </div>
+      <div class="step" data-funnel-step="contact">
+        <span>2</span>
+        <strong>Contacto</strong>
+      </div>
+      <div class="step" data-funnel-step="review">
+        <span>3</span>
+        <strong>Review</strong>
+      </div>
+      <div class="step" data-funnel-step="revalidation">
+        <span>4</span>
+        <strong>Revalidación</strong>
+      </div>
+    </nav>
+
+    <div id="bookingError" class="message error hidden"></div>
+
+    <div id="bookingWorkspace" class="workspace hidden">
+      <section class="main-column">
+        <article class="panel handoff-card">
+          <span class="eyebrow">Reserva iniciada</span>
+          <h1>La selección quedó congelada</h1>
+          <p>
+            Este Booking conserva el itinerario, la tarifa exacta y el mix de
+            pasajeros cotizado. Los cambios posteriores en Shopping no
+            modifican esta reserva.
+          </p>
+
+          <div class="handoff-grid">
+            <div>
+              <small>Booking</small>
+              <strong id="handoffBookingId">—</strong>
+            </div>
+            <div>
+              <small>Cotización origen</small>
+              <a id="sourceQuoteLink" href="/app">—</a>
+            </div>
+            <div>
+              <small>Entorno</small>
+              <strong id="environment">—</strong>
+            </div>
+            <div>
+              <small>Revisión de oferta</small>
+              <strong id="offerRevision">—</strong>
+            </div>
+          </div>
+        </article>
+
+        <article
+          id="passengerPanel"
+          class="panel passenger-panel funnel-panel"
+          data-funnel-panel="passengers"
+        >
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Paso 1</span>
+              <h2>Pasajeros</h2>
+            </div>
+            <span id="passengerCompletionBadge" class="dev-badge">
+              Datos pendientes
+            </span>
+          </div>
+          <p class="muted">
+            La cantidad, tipo y edad tarifada de los pasajeros están fijados
+            por la cotización. Completá únicamente los datos de identidad.
+          </p>
+
+          <div id="passengerMix" class="passenger-mix"></div>
+          <div id="passengerLoadStatus" class="message hidden"></div>
+
+          <form id="passengerForm" class="passenger-form" autocomplete="off">
+            <div id="passengerFields" class="passenger-fields"></div>
+
+            <div class="passenger-actions">
+              <button
+                id="savePassengersButton"
+                class="primary"
+                type="submit"
+              >
+                Guardar pasajeros
+              </button>
+              <button
+                id="continueContactButton"
+                class="secondary-action"
+                type="button"
+                disabled
+              >
+                Continuar con pasajeros
+              </button>
+            </div>
+          </form>
+        </article>
+
+        <article
+          id="contactPanel"
+          class="panel funnel-panel hidden"
+          data-funnel-panel="contact"
+        >
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Paso 2</span>
+              <h2>Contacto</h2>
+            </div>
+            <span id="contactCompletionBadge" class="dev-badge">
+              Datos pendientes
+            </span>
+          </div>
+          <p class="muted">
+            Estos datos se usarán como contacto principal de la reserva.
+            Pasajeros y contacto deben estar completos antes del Review.
+          </p>
+
+          <div id="contactStatus" class="message hidden"></div>
+
+          <form id="contactForm" class="contact-form" autocomplete="off">
+            <div class="contact-grid">
+              <label class="field full-width">
+                <span>Nombre del contacto *</span>
+                <input
+                  id="contactName"
+                  type="text"
+                  maxlength="120"
+                  autocomplete="name"
+                  required
+                >
+              </label>
+
+              <label class="field full-width">
+                <span>Email *</span>
+                <input
+                  id="contactEmail"
+                  type="email"
+                  maxlength="254"
+                  autocomplete="email"
+                  required
+                >
+              </label>
+
+              <label class="field">
+                <span>Código de país *</span>
+                <input
+                  id="contactCountryCode"
+                  type="tel"
+                  maxlength="8"
+                  inputmode="tel"
+                  placeholder="+54"
+                  required
+                >
+              </label>
+
+              <label class="field">
+                <span>Teléfono *</span>
+                <input
+                  id="contactPhone"
+                  type="tel"
+                  maxlength="32"
+                  inputmode="tel"
+                  autocomplete="tel-national"
+                  placeholder="11 5555 1234"
+                  required
+                >
+              </label>
+
+              <label class="field full-width">
+                <span>Canal preferido</span>
+                <select id="preferredChannel">
+                  <option value="">Sin preferencia</option>
+                  <option value="email">Email</option>
+                  <option value="phone">Teléfono</option>
+                  <option value="whatsapp">WhatsApp</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="funnel-actions">
+              <button
+                id="backToPassengersButton"
+                class="secondary-action"
+                type="button"
+              >
+                Volver a pasajeros
+              </button>
+              <button
+                id="saveContactButton"
+                class="primary"
+                type="submit"
+              >
+                Guardar contacto
+              </button>
+              <button
+                id="continueReviewButton"
+                class="secondary-action"
+                type="button"
+                disabled
+              >
+                Continuar a Review
+              </button>
+            </div>
+          </form>
+        </article>
+
+        <article
+          id="reviewPanel"
+          class="panel funnel-panel hidden"
+          data-funnel-panel="review"
+        >
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Paso 3</span>
+              <h2>Review</h2>
+            </div>
+            <span id="reviewReadinessBadge" class="dev-badge">
+              Verificando…
+            </span>
+          </div>
+
+          <p class="muted">
+            Revisá el producto congelado, los pasajeros y el contacto antes
+            de pasar a la revalidación con Sabre.
+          </p>
+
+          <div id="reviewStatus" class="message hidden"></div>
+          <div id="reviewContent" class="review-content"></div>
+
+          <div class="funnel-actions">
+            <button
+              id="backToContactButton"
+              class="secondary-action"
+              type="button"
+            >
+              Volver a contacto
+            </button>
+            <button
+              id="continueRevalidationButton"
+              class="primary"
+              type="button"
+              disabled
+            >
+              Continuar a Revalidación
+            </button>
+          </div>
+        </article>
+
+        <article
+          id="revalidationPanel"
+          class="panel funnel-panel hidden"
+          data-funnel-panel="revalidation"
+        >
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Paso 4</span>
+              <h2>Revalidación</h2>
+            </div>
+            <span id="revalidationBadge" class="dev-badge">
+              Sin revalidar
+            </span>
+          </div>
+
+          <p class="muted">
+            Sabre verificará nuevamente el vuelo, la clase de reserva y la
+            tarifa exacta congelada. Esta acción no crea un PNR.
+          </p>
+
+          <div id="revalidationStatus" class="message hidden"></div>
+          <div id="revalidationContent" class="revalidation-content"></div>
+
+          <div class="funnel-actions">
+            <button
+              id="backToReviewButton"
+              class="secondary-action"
+              type="button"
+            >
+              Volver a Review
+            </button>
+            <button
+              id="runRevalidationButton"
+              class="primary"
+              type="button"
+            >
+              Revalidar con Sabre
+            </button>
+          </div>
+        </article>
+      </section>
+
+      <aside class="summary-column">
+        <article class="panel sticky-summary">
+          <div class="summary-head">
+            <div>
+              <span class="eyebrow">Tu selección</span>
+              <h2 id="fareTitle">Tarifa</h2>
+            </div>
+            <strong id="totalPrice" class="total-price">—</strong>
+          </div>
+
+          <div id="segments" class="segments"></div>
+
+          <dl class="fare-meta">
+            <div>
+              <dt>Cabina</dt>
+              <dd id="cabin">—</dd>
+            </div>
+            <div>
+              <dt>Validating carrier</dt>
+              <dd id="validatingCarrier">—</dd>
+            </div>
+          </dl>
+
+          <details class="fare-details">
+            <summary>Ver detalle</summary>
+            <div>
+              <span>Fare basis</span>
+              <strong id="fareBasis">—</strong>
+            </div>
+            <div>
+              <span>Revision de oferta</span>
+              <strong id="revisionNumber">—</strong>
+            </div>
+          </details>
+
+          <a id="backToQuote" class="secondary-link" href="/app">
+            Volver a la cotización
+          </a>
+        </article>
+      </aside>
+    </div>
+  </main>
+
+  <script src="/app/assets/booking.js"></script>
+  <script src="/app/assets/booking-passengers.js"></script>
+  <script src="/app/assets/booking-contact-review.js"></script>
+  <script src="/app/assets/booking-revalidation.js"></script>
+</body>
+</html>

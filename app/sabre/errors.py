@@ -11,3 +11,11 @@ class SabreAPIError(SabreError):
         super().__init__(f"Sabre respondió HTTP {status_code}: {message}")
         self.status_code = status_code
         self.response_body = response_body
+
+
+class SabreWriteNotSentError(SabreError):
+    """A write failed before the HTTP request could be sent."""
+
+
+class SabreWriteAmbiguousError(SabreError):
+    """A write may have reached Sabre; blind retry is unsafe."""
