@@ -261,6 +261,26 @@ class SabreCreateBookingResult:
     provider_reference: str | None = None
 
 
+def _explicit_bad_request_code(body: object) -> str | None:
+    if not isinstance(body, dict):
+        return None
+
+    errors = body.get("errors")
+    if not isinstance(errors, list):
+        return None
+
+    for error in errors:
+        if not isinstance(error, dict):
+            continue
+        category = str(error.get("category") or "").strip().upper()
+        if category != "BAD_REQUEST":
+            continue
+        error_type = str(error.get("type") or "").strip()
+        return error_type or "PROVIDER_BAD_REQUEST"
+
+    return None
+
+
 def _find_first_string(
     value: object,
     keys: set[str],
@@ -377,6 +397,23 @@ class SabreCreateBookingProvider:
                 {"confirmationId"},
             )
             if not confirmation_id:
+                bad_request_code = _explicit_bad_request_code(body)
+                if bad_request_code:
+                    diagnostic = _attach_exchange_metadata(
+                        sanitize_create_booking_response(
+                            body,
+                            payload,
+                        ),
+                        client,
+                    )
+                    raise SabreCreateBookingSafeFailure(
+                        bad_request_code,
+                        "Sabre rechazó Create Booking con BAD_REQUEST explícito "
+                        "y sin confirmationId. No se tratará como resultado "
+                        "ambiguo.",
+                        diagnostic=diagnostic,
+                    )
+
                 diagnostic = _attach_exchange_metadata(
                     sanitize_create_booking_response(
                         body,
