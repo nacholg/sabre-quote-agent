@@ -171,7 +171,7 @@ async def test_builder_direct_payload_and_fingerprint(tmp_path):
         "flightStatusCode": "NN",
         "isMarriageGroup": False,
     }
-    assert payload["flightDetails"]["flightPricing"][0]["validatingAirlineCode"] == "AA"
+    assert payload["flightDetails"]["flightPricing"] == []
     assert fingerprint == create_booking_payload_fingerprint(payload)
     assert len(fingerprint) == 64
 
@@ -188,9 +188,14 @@ async def test_builder_maps_adt_cnn_inf_counts(tmp_path):
         {"slot_index": 2, "given_name": "CHILD", "surname": "TEST", "date_of_birth": "2020-01-15", "gender": "F"},
         {"slot_index": 3, "given_name": "INFANT", "surname": "TEST", "date_of_birth": "2026-08-15", "gender": "M", "associated_adult_slot_index": 1},
     ])
-    payload = BookingCreatePnrPayloadBuilder(booking_repository=repository).build(booking_id)
+    payload = BookingCreatePnrPayloadBuilder(
+        booking_repository=repository,
+        include_flight_pricing=True,
+    ).build(booking_id)
     assert [x["passengerCode"] for x in payload["travelers"]] == ["ADT", "CNN", "INF"]
-    assert [x["passengerCode"] for x in payload["flightDetails"]["flightPricing"][0]["passengersPricing"]] == ["ADT", "CNN", "INF"]
+    qualifiers = payload["flightDetails"]["flightPricing"][0]["qualifiers"]
+    assert qualifiers["validatingAirlineCode"] == "AA"
+    assert [x["passengerCode"] for x in qualifiers["passengersPricing"]] == ["ADT", "CNN", "INF"]
 
 
 @pytest.mark.asyncio
@@ -225,7 +230,7 @@ def test_part2_has_no_network_write():
     assert "trip/orders/createbooking" not in combined
 
 @pytest.mark.asyncio
-async def test_builder_can_explicitly_omit_create_booking_flight_pricing(
+async def test_builder_omits_automatic_flight_pricing_by_default_and_allows_explicit_experiment(
     tmp_path,
 ):
     snapshot = _snapshot()
@@ -244,22 +249,36 @@ async def test_builder_can_explicitly_omit_create_booking_flight_pricing(
     default_builder = BookingCreatePnrPayloadBuilder(
         booking_repository=repository
     )
-    no_pricing_builder = BookingCreatePnrPayloadBuilder(
+    experimental_builder = BookingCreatePnrPayloadBuilder(
         booking_repository=repository,
-        include_flight_pricing=False,
+        include_flight_pricing=True,
     )
 
     default_payload, default_fingerprint = (
         default_builder.build_with_fingerprint(booking_id)
     )
-    no_pricing_payload, no_pricing_fingerprint = (
-        no_pricing_builder.build_with_fingerprint(booking_id)
+    experimental_payload, experimental_fingerprint = (
+        experimental_builder.build_with_fingerprint(booking_id)
     )
 
-    assert default_payload["flightDetails"]["flightPricing"]
-    assert no_pricing_payload["flightDetails"]["flightPricing"] == []
-    assert default_fingerprint != no_pricing_fingerprint
+    assert default_payload["flightDetails"]["flightPricing"] == []
+
+    experimental_pricing = experimental_payload["flightDetails"]["flightPricing"]
+    assert len(experimental_pricing) == 1
+    qualifiers = experimental_pricing[0]["qualifiers"]
+    assert qualifiers["validatingAirlineCode"] == "AA"
+    assert qualifiers["passengersPricing"] == [{
+        "passengerCode": "ADT",
+        "forcePassengerCode": False,
+        "numberOfpassengers": 1,
+    }]
+
+    assert default_fingerprint != experimental_fingerprint
     assert (
-        no_pricing_fingerprint
-        == create_booking_payload_fingerprint(no_pricing_payload)
+        default_fingerprint
+        == create_booking_payload_fingerprint(default_payload)
+    )
+    assert (
+        experimental_fingerprint
+        == create_booking_payload_fingerprint(experimental_payload)
     )

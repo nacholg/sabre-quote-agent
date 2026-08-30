@@ -43,7 +43,7 @@ def _flight_summary(booking) -> list[str]:
 def _preview(
     booking_id: str,
     *,
-    omit_flight_pricing: bool = False,
+    include_experimental_flight_pricing: bool = False,
 ) -> tuple[object, str]:
     repository = get_booking_repository()
     booking = repository.get(booking_id)
@@ -72,7 +72,7 @@ def _preview(
 
     _, fingerprint = BookingCreatePnrPayloadBuilder(
         booking_repository=repository,
-        include_flight_pricing=not omit_flight_pricing,
+        include_flight_pricing=include_experimental_flight_pricing,
     ).build_with_fingerprint(booking_id)
 
     print("=== CREATE BOOKING CERT PREVIEW ===")
@@ -89,7 +89,11 @@ def _preview(
     print(f"request_fingerprint={fingerprint}")
     print(
         "create_booking_flight_pricing="
-        + ("omitted" if omit_flight_pricing else "enabled")
+        + (
+            "experimental_enabled"
+            if include_experimental_flight_pricing
+            else "omitted_default"
+        )
     )
     revision = booking.accepted_offer_revision
     if revision is not None:
@@ -129,7 +133,7 @@ async def _execute(
     booking_id: str,
     client_request_id: UUID,
     *,
-    omit_flight_pricing: bool = False,
+    include_experimental_flight_pricing: bool = False,
 ) -> int:
     repository = get_booking_repository()
     booking = repository.get(booking_id)
@@ -140,7 +144,7 @@ async def _execute(
     provider = SabreCreateBookingProvider(settings=settings)
     payload_builder = BookingCreatePnrPayloadBuilder(
         booking_repository=repository,
-        include_flight_pricing=not omit_flight_pricing,
+        include_flight_pricing=include_experimental_flight_pricing,
     )
     service = BookingPnrExecutionService(
         booking_repository=repository,
@@ -223,18 +227,19 @@ def main() -> int:
         help="Actually send Create Booking to Sabre CERT.",
     )
     parser.add_argument(
-        "--omit-flight-pricing",
+        "--include-experimental-flight-pricing",
         action="store_true",
         help=(
-            "CERT experiment only: send flightPricing=[] so Create Booking "
-            "does not request its normal automatic flight pricing."
+            "CERT experiment only: enable Create Booking automatic "
+            "flightPricing. Disabled by default until exact branded-fare "
+            "pricing qualifiers are represented safely."
         ),
     )
     args = parser.parse_args()
 
     booking, _ = _preview(
         args.booking_id,
-        omit_flight_pricing=args.omit_flight_pricing,
+        include_experimental_flight_pricing=args.include_experimental_flight_pricing,
     )
 
     if not args.confirm_cert_write:
@@ -245,8 +250,8 @@ def main() -> int:
             "For the actual CERT write, reuse one explicit UUID, e.g.:"
         )
         optional_mode = (
-            "--omit-flight-pricing "
-            if args.omit_flight_pricing
+            "--include-experimental-flight-pricing "
+            if args.include_experimental_flight_pricing
             else ""
         )
         print(
@@ -274,7 +279,7 @@ def main() -> int:
         _execute(
             booking.booking_id,
             request_id,
-            omit_flight_pricing=args.omit_flight_pricing,
+            include_experimental_flight_pricing=args.include_experimental_flight_pricing,
         )
     )
 

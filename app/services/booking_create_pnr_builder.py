@@ -83,7 +83,7 @@ class BookingCreatePnrPayloadBuilder:
         self,
         *,
         booking_repository: BookingRepository | None = None,
-        include_flight_pricing: bool = True,
+        include_flight_pricing: bool = False,
     ) -> None:
         self.booking_repository = booking_repository or get_booking_repository()
         self.include_flight_pricing = include_flight_pricing
@@ -194,7 +194,7 @@ class BookingCreatePnrPayloadBuilder:
                 "Create Booking requiere email y teléfono completos."
             )
 
-        pricing: dict[str, object] = {
+        qualifiers: dict[str, object] = {
             "passengersPricing": [
                 {
                     "passengerCode": code,
@@ -206,9 +206,17 @@ class BookingCreatePnrPayloadBuilder:
         }
         validating = str(snapshot.fare.validating_carrier or "").strip().upper()
         if validating:
-            pricing["validatingAirlineCode"] = validating
+            qualifiers["validatingAirlineCode"] = validating
 
-        flight_pricing = [pricing] if self.include_flight_pricing else []
+        # Automatic Create Booking pricing remains experimental until exact
+        # branded-fare qualifiers are represented safely. The canonical v0.32
+        # flow sells the flights unpriced and prices/PQs them through the
+        # guarded SOAP workflow.
+        flight_pricing = (
+            [{"qualifiers": qualifiers}]
+            if self.include_flight_pricing
+            else []
+        )
 
         return {
             "travelers": travelers,
