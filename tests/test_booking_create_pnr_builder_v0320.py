@@ -156,6 +156,7 @@ async def test_builder_direct_payload_and_fingerprint(tmp_path):
         "givenName": "JOHN MICHAEL",
         "surname": "TEST",
         "birthDate": "1985-04-15",
+        "gender": "MALE",
         "passengerCode": "ADT",
     }]
     assert payload["contactInfo"]["phones"] == ["+541155551234"]

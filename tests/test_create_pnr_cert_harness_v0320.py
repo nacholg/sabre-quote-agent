@@ -19,9 +19,13 @@ def test_prepare_script_is_cert_only_and_never_creates_pnr():
     assert "create_booking(" not in lower
 
 
-def test_prepare_script_uses_synthetic_pii_only():
-    assert '"given_name": "CERTTEST"' in PREPARE
+def test_prepare_script_uses_unique_synthetic_pii_only():
+    assert "def _synthetic_given_name(" in PREPARE
+    assert "_HEX_TO_ALPHA" in PREPARE
+    assert '"given_name": _synthetic_given_name(' in PREPARE
     assert '"surname": "BOOKING"' in PREPARE
+    assert '"date_of_birth": "1985-04-15"' in PREPARE
+    assert '"gender": "M"' in PREPARE
     assert '"email": "test@example.com"' in PREPARE
     assert '"phone_number": "1100000000"' in PREPARE
 

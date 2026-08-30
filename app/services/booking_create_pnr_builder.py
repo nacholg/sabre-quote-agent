@@ -59,6 +59,23 @@ def _traveler_given_name(given_name: str | None, middle_name: str | None) -> str
     )
 
 
+def sabre_create_booking_gender(gender: str | None) -> str:
+    # Booking Management traveler gender vocabulary.
+    mapping = {
+        "M": "MALE",
+        "F": "FEMALE",
+        "X": "UNDISCLOSED",
+    }
+    normalized = str(gender or "").strip().upper()
+    try:
+        return mapping[normalized]
+    except KeyError as exc:
+        raise BookingCreatePnrPayloadError(
+            "Género requerido para Create Booking "
+            "(M, F o X)."
+        ) from exc
+
+
 class BookingCreatePnrPayloadBuilder:
     """Pure dry-run Create Booking builder. No HTTP calls and no mutations."""
 
@@ -145,7 +162,12 @@ class BookingCreatePnrPayloadBuilder:
                 passenger.given_name,
                 passenger.middle_name,
             )
-            if not given_name or not passenger.surname or not passenger.date_of_birth:
+            if (
+                not given_name
+                or not passenger.surname
+                or not passenger.date_of_birth
+                or not passenger.gender
+            ):
                 raise BookingCreatePnrPayloadError(
                     f"Pasajero slot {passenger.slot_index} incompleto."
                 )
@@ -154,6 +176,9 @@ class BookingCreatePnrPayloadBuilder:
                     "givenName": given_name,
                     "surname": str(passenger.surname).strip(),
                     "birthDate": passenger.date_of_birth.isoformat(),
+                    "gender": sabre_create_booking_gender(
+                        passenger.gender
+                    ),
                     "passengerCode": code,
                 }
             )

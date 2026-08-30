@@ -18,11 +18,26 @@ from app.services.booking_repository import get_booking_repository
 
 
 SYNTHETIC_PASSENGER = {
-    "given_name": "CERTTEST",
     "surname": "BOOKING",
     "date_of_birth": "1985-04-15",
     "gender": "M",
 }
+
+_HEX_TO_ALPHA = "ABCDEFGHIJKLMNOP"
+
+
+def _synthetic_given_name(booking_id: str) -> str:
+    # Stable alphabetic CERT-only name unique to this Booking.
+    suffix = booking_id.rsplit("-", 1)[-1].upper()
+    if not suffix or any(ch not in "0123456789ABCDEF" for ch in suffix):
+        raise RuntimeError(
+            "Booking sintético no tiene sufijo hexadecimal válido."
+        )
+    encoded = "".join(
+        _HEX_TO_ALPHA[int(ch, 16)]
+        for ch in suffix[:8]
+    )
+    return f"CERT{encoded}"
 SYNTHETIC_CONTACT = {
     "name": "CERT TEST BOOKING",
     "email": "test@example.com",
@@ -91,6 +106,9 @@ async def _run(source_booking_id: str) -> int:
             passengers=[
                 {
                     "slot_index": 1,
+                    "given_name": _synthetic_given_name(
+                        clone.booking_id
+                    ),
                     **SYNTHETIC_PASSENGER,
                 }
             ],

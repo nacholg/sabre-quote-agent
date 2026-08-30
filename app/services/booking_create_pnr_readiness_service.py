@@ -101,6 +101,17 @@ def _snapshot_gate(
     if not str(snapshot.fare.validating_carrier or "").strip():
         _append_once(warnings, "validating_carrier_missing")
 
+    selected_brand = str(
+        snapshot.fare.brand_code
+        or snapshot.fare.brand_name
+        or ""
+    ).strip()
+    if selected_brand and not snapshot.fare.branded_components:
+        _append_once(
+            warnings,
+            "branded_fare_component_metadata_missing",
+        )
+
     # Current FlightSegment does not persist isMarriageGroup. Surface this
     # explicitly for connections instead of silently inventing false in v0.32.
     if snapshot.legs and len(snapshot.segments) > len(snapshot.legs):
