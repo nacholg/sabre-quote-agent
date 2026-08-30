@@ -1,7 +1,7 @@
 [project]
 name = "sabre-quote-agent"
 dynamic = ["version"]
-description = "MVP read-only para búsquedas y cotizaciones aéreas con Sabre"
+description = "Agente de cotización y booking aéreo con Sabre y writes protegidos por feature flags"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "fastapi>=0.115,<1",

@@ -1,4 +1,62 @@
-# Sabre Quote Agent MVP 0.18.1
+# Sabre Quote Agent 0.32.0
+
+Agente de shopping, cotización y booking aéreo orientado a operación de agencia,
+con integración Sabre y guardrails explícitos para cualquier workflow capaz de escribir.
+
+## v0.32.0 — Booking funnel y Create PNR foundation
+
+Flujo implementado:
+
+```text
+Shopping
+  -> selección exacta
+  -> Reservar
+  -> pasajeros
+  -> contacto
+  -> Review
+  -> Revalidation
+  -> Create PNR foundation
+  -> PNR Workspace
+```
+
+La versión incorpora:
+
+- Booking persistido y state machine;
+- captura de pasajeros/contacto y Review;
+- revalidación contra la branded fare exacta seleccionada;
+- lifecycle persistido de intentos de Create PNR con idempotencia;
+- Create Booking protegido por environment/feature flags;
+- SOAP PNR Read y AirPrice read-only;
+- PQ Store y Secure Flight experimentales, CERT-only y opt-in;
+- estado `RECONCILIATION_REQUIRED` y política `NO RETRY` ante resultados ambiguos.
+
+### Create Booking pricing
+
+El flujo canónico de v0.32 **no solicita automatic `flightPricing` en Create Booking**.
+La identidad branded exacta se preserva y revalida antes del sell, y el pricing/PQ se
+maneja después mediante el workflow SOAP protegido.
+
+`flightPricing` automático queda únicamente como experimento CERT explícito hasta
+representar de forma segura todos los qualifiers necesarios para preservar la
+identidad tarifaria exacta.
+
+### Feature flags de write
+
+Todos permanecen `false` por defecto:
+
+```text
+SABRE_CREATE_BOOKING_ENABLED=false
+SABRE_CREATE_BOOKING_PROD_ENABLED=false
+SABRE_PNR_PRICING_ENABLED=false
+SABRE_SECURE_FLIGHT_ENABLED=false
+```
+
+PROD write no debe habilitarse como consecuencia de instalar o desplegar esta versión.
+
+---
+
+## Historial anterior — MVP 0.18.1
+
 
 Corrección de rutas IATA y protección del catálogo local.
 
