@@ -116,6 +116,7 @@ def passengers_complete(
             row["given_name"]
             and row["surname"]
             and row["date_of_birth"]
+            and row["gender"]
         ):
             return False
 

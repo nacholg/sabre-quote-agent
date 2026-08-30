@@ -169,20 +169,21 @@
           </label>
 
           <label class="field">
-            <span>Género</span>
+            <span>Género *</span>
             <select
               data-field="gender"
               data-slot="${passenger.slot_index}"
+              required
             >
-              <option value="">No informado</option>
+              <option value="">Seleccionar</option>
               <option value="M" ${passenger.gender === "M" ? "selected" : ""}>
-                M
+                Masculino
               </option>
               <option value="F" ${passenger.gender === "F" ? "selected" : ""}>
-                F
+                Femenino
               </option>
               <option value="X" ${passenger.gender === "X" ? "selected" : ""}>
-                X
+                X / no especificado
               </option>
             </select>
           </label>

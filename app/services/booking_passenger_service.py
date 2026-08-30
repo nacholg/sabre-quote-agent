@@ -227,6 +227,7 @@ class BookingPassengerService:
             identity.get("given_name")
             and identity.get("surname")
             and identity.get("date_of_birth")
+            and identity.get("gender")
         )
         if not basic:
             return False
