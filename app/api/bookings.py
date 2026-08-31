@@ -3,8 +3,10 @@ from fastapi import APIRouter, HTTPException, status
 from app.models.booking import (
     BookingContactRecord,
     BookingContactUpdateRequest,
+    BookingCreatePnrRequest,
     BookingCreateRequest,
     BookingPassengersResponse,
+    BookingPnrAttemptRecord,
     BookingPassengersUpdateRequest,
     BookingRecord,
     BookingRevalidationRequest,
@@ -22,6 +24,27 @@ from app.services.booking_passenger_service import (
     BookingPassengerValidationError,
     BookingRevisionConflictError,
     get_booking_passenger_service,
+)
+from app.services.booking_create_pnr_builder import (
+    BookingCreatePnrPayloadError,
+)
+from app.services.booking_create_pnr_service import (
+    BookingCreatePnrUnavailableError,
+    get_booking_create_pnr_service,
+)
+from app.services.booking_create_pnr_workflow_service import (
+    BookingCreatePnrFreshRevalidationError,
+)
+from app.services.booking_pnr_attempt_service import (
+    BookingPnrAttemptIdempotencyConflictError,
+    BookingPnrAttemptRevisionConflictError,
+    BookingPnrAttemptStateError,
+    get_booking_pnr_attempt_service,
+)
+from app.services.booking_pnr_execution_service import (
+    BookingPnrExecutionBindingError,
+    BookingPnrExecutionLocalConsistencyError,
+    BookingPnrExecutionReconciliationRequiredError,
 )
 from app.services.booking_review_service import get_booking_review_service
 from app.services.booking_revalidation_service import (
@@ -219,6 +242,80 @@ async def get_booking_review(
             status_code=404,
             detail=f"Reserva no encontrada: {booking_id}",
         )
+
+
+@router.get(
+    "/bookings/{booking_id}/pnr",
+    response_model=BookingPnrAttemptRecord,
+    summary="Leer intento Create PNR",
+)
+async def get_booking_pnr_attempt(
+    booking_id: str,
+) -> BookingPnrAttemptRecord:
+    booking = get_booking_repository().get(booking_id)
+    if booking is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Reserva no encontrada: {booking_id}",
+        )
+
+    attempt = get_booking_pnr_attempt_service().get(booking_id)
+    if attempt is None:
+        raise HTTPException(
+            status_code=404,
+            detail="El Booking todavía no tiene un intento Create PNR.",
+        )
+    return attempt
+
+
+@router.post(
+    "/bookings/{booking_id}/pnr",
+    response_model=BookingPnrAttemptRecord,
+    summary="Revalidar y crear PNR exacto",
+)
+async def create_booking_pnr(
+    booking_id: str,
+    request: BookingCreatePnrRequest,
+) -> BookingPnrAttemptRecord:
+    try:
+        return await get_booking_create_pnr_service().execute(
+            booking_id,
+            request,
+        )
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Reserva no encontrada: {booking_id}",
+        )
+    except BookingCreatePnrUnavailableError as exc:
+        # Important: this happens before any persisted attempt/write.
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+        ) from exc
+    except (
+        BookingCreatePnrFreshRevalidationError,
+        BookingPnrAttemptIdempotencyConflictError,
+        BookingPnrAttemptRevisionConflictError,
+        BookingPnrAttemptStateError,
+        BookingPnrExecutionBindingError,
+        BookingPnrExecutionLocalConsistencyError,
+        BookingPnrExecutionReconciliationRequiredError,
+        BookingRevalidationConflictError,
+        BookingRevalidationStateError,
+    ) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+    except (
+        BookingCreatePnrPayloadError,
+        BookingRevalidationDataError,
+    ) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
 
 
 @router.get(

@@ -81,7 +81,7 @@ def test_v0320_create_booking_endpoint_is_centralized_in_config() -> None:
     assert offenders == ["app/config.py"]
 
 
-def test_v0315_ui_has_no_create_pnr_action() -> None:
+def test_create_pnr_ui_uses_only_canonical_application_api() -> None:
     html = Path("app/web/booking.html").read_text(
         encoding="utf-8"
     ).lower()
@@ -90,13 +90,13 @@ def test_v0315_ui_has_no_create_pnr_action() -> None:
         for path in Path("app/web/assets").glob("booking*.js")
     )
 
-    # Informational copy may mention that Create PNR arrives in v0.32.
-    # What v0.31 must not expose is an actionable control or fetch.
-    assert 'id="createpnrbutton"' not in html
-    assert 'id="runcreatepnrbutton"' not in html
-    assert '"/create-pnr"' not in scripts
-    assert "'/create-pnr'" not in scripts
+    # v0.33 exposes Create PNR, but the browser must never call
+    # Sabre Create Booking directly. Product/PII/pricing remain server-side.
+    assert 'id="createpnrbutton"' in html
+    assert 'data-funnel-step="create-pnr"' in html
+    assert "/bookings/${encodeuricomponent(bookingid)}/pnr" in scripts
     assert CREATE_BOOKING_PATH.lower() not in scripts
+    assert "trip/orders/createbooking" not in scripts
 
 
 def test_revalidation_service_cannot_enter_pnr_created() -> None:

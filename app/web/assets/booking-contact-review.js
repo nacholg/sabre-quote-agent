@@ -106,7 +106,7 @@
   }
 
   async function openStep(stepName) {
-    if (stepName === "revalidation") return;
+    if (stepName === "create-pnr") return;
 
     if (
       (stepName === "contact" || stepName === "review") &&
@@ -377,7 +377,7 @@
       </section>
     `;
 
-    const revalidationAllowed = (
+    const createPnrAllowed = (
       data.passengers_complete &&
       data.contact_complete &&
       [
@@ -385,24 +385,25 @@
         "revalidation_required",
         "requires_agent_action",
         "ready_to_create_pnr",
+        "pnr_created",
       ].includes(data.status)
     );
 
-    const revalidationButton = $("continueRevalidationButton");
-    if (revalidationButton) {
-      revalidationButton.disabled = !revalidationAllowed;
-      revalidationButton.textContent = data.ready_for_review
-        ? "Continuar a Revalidación"
-        : "Ver Revalidación";
+    const createPnrButton = $("continueCreatePnrButton");
+    if (createPnrButton) {
+      createPnrButton.disabled = !createPnrAllowed;
+      createPnrButton.textContent = data.status === "pnr_created"
+        ? "Ver PNR"
+        : "Continuar a Crear PNR";
     }
 
     let reviewMessage = "El Booking todavía tiene datos pendientes.";
     let reviewKind = "info";
     if (data.ready_for_review) {
-      reviewMessage = "Booking listo para pasar a revalidación.";
+      reviewMessage = "Booking listo para crear PNR.";
       reviewKind = "ok";
     } else if (data.status === "ready_to_create_pnr") {
-      reviewMessage = "Booking revalidado y listo para crear PNR en v0.32.";
+      reviewMessage = "Booking listo para crear PNR.";
       reviewKind = "ok";
     } else if (data.status === "requires_agent_action") {
       reviewMessage = "La revalidación requiere revisión del agente.";

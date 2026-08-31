@@ -15,12 +15,12 @@ def test_booking_workspace_has_contact_and_review_panels() -> None:
     assert "/app/assets/booking-contact-review.js" in html
 
 
-def test_revalidation_handoff_remains_present_after_v0313() -> None:
+def test_create_pnr_handoff_is_present() -> None:
     html = Path("app/web/booking.html").read_text(encoding="utf-8")
 
-    assert 'data-funnel-step="revalidation"' in html
-    assert "Revalidación" in html
-    assert "create-pnr" not in html.lower()
+    assert 'data-funnel-step="create-pnr"' in html
+    assert "Crear PNR" in html
+    assert 'id="runRevalidationButton"' not in html
 
 
 def test_contact_review_ui_uses_canonical_backend_endpoints() -> None:
@@ -64,4 +64,4 @@ def test_contact_review_asset_is_served() -> None:
 
     assert response.status_code == 200
     assert "Guardar contacto" in response.text
-    assert "Booking listo para pasar a revalidación." in response.text
+    assert "Booking listo para crear PNR." in response.text
