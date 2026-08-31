@@ -71,10 +71,12 @@ def _snapshot(*, passenger_mix=None, segments=None, legs=None) -> BookingOfferSn
 
 
 def _candidate(snapshot: BookingOfferSnapshot) -> ItineraryOption:
+    currency = snapshot.fare.currency
+
     fare = FareOption(
         cabin=snapshot.fare.cabin,
         cabin_codes=["Y"],
-        currency="USD",
+        currency=currency,
         price_per_passenger=snapshot.fare.price_per_passenger,
         total_price=snapshot.fare.total_price,
         fare_basis_codes=list(snapshot.fare.fare_basis_codes),
@@ -87,8 +89,8 @@ def _candidate(snapshot: BookingOfferSnapshot) -> ItineraryOption:
     return ItineraryOption(
         segments=snapshot.segments,
         fare=fare,
-        fares_by_currency={"USD": fare},
-        fare_options_by_currency={"USD": [fare]},
+        fares_by_currency={currency: fare},
+        fare_options_by_currency={currency: [fare]},
     )
 
 
@@ -451,6 +453,7 @@ async def test_builder_carries_mainfl_exactly_into_create_booking(tmp_path):
     qualifiers = pricing[0]["qualifiers"]
 
     assert qualifiers["validatingAirlineCode"] == "AA"
+    assert qualifiers["currencyPricing"] == "USD"
     assert qualifiers["brandedFares"] == [{
         "brandCode": "MAINFL",
         "flightIndices": [1],
@@ -464,3 +467,29 @@ async def test_builder_carries_mainfl_exactly_into_create_booking(tmp_path):
     # Fare basis is identity/audit data. It must NOT be used as forced pricing.
     serialized = str(payload)
     assert "SLN7AHM5/L040" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_builder_uses_selected_fare_currency_for_pricing(tmp_path):
+    snapshot = _snapshot()
+    snapshot.fare.currency = "EUR"
+
+    repository, booking_id = await _ready(
+        tmp_path,
+        snapshot,
+        [{
+            "slot_index": 1,
+            "given_name": "TEST",
+            "surname": "PASSENGER",
+            "date_of_birth": "1985-04-15",
+            "gender": "M",
+        }],
+    )
+
+    payload = BookingCreatePnrPayloadBuilder(
+        booking_repository=repository,
+        include_flight_pricing=True,
+    ).build(booking_id)
+
+    qualifiers = payload["flightDetails"]["flightPricing"][0]["qualifiers"]
+    assert qualifiers["currencyPricing"] == "EUR"
