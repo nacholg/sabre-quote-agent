@@ -22,6 +22,10 @@ from app.services.booking_pnr_execution_service import (
     BookingPnrExecutionReconciliationRequiredError,
     BookingPnrExecutionService,
 )
+from app.services.booking_create_pnr_workflow_service import (
+    BookingCreatePnrFreshRevalidationError,
+    BookingCreatePnrWorkflowService,
+)
 from app.services.booking_repository import get_booking_repository
 
 
@@ -156,13 +160,24 @@ async def _execute(
         provider=provider,
     )
 
+    workflow = BookingCreatePnrWorkflowService(
+        booking_repository=repository,
+        execution_service=service,
+    )
+
     request = BookingCreatePnrRequest(
         revision=booking.revision,
         client_request_id=client_request_id,
     )
 
     try:
-        attempt = await service.execute(booking_id, request)
+        attempt = await workflow.execute(booking_id, request)
+    except BookingCreatePnrFreshRevalidationError as exc:
+        print()
+        print("RESULT=FRESH_REVALIDATION_FAILED")
+        print("CREATE_BOOKING_NOT_SENT")
+        print(f"detail={str(exc)[:1000]}")
+        return 5
     except BookingPnrExecutionReconciliationRequiredError as exc:
         attempt = BookingPnrAttemptService(
             booking_repository=repository
@@ -250,6 +265,10 @@ def main() -> int:
         suggested = uuid4()
         print()
         print("PREVIEW ONLY - no request was sent to Sabre Create Booking.")
+        print(
+            "Actual CERT write performs a fresh automatic revalidation "
+            "before Create Booking."
+        )
         print(
             "For the actual CERT write, reuse one explicit UUID, e.g.:"
         )
