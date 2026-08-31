@@ -79,8 +79,10 @@ def _candidate(snapshot: BookingOfferSnapshot) -> ItineraryOption:
         total_price=snapshot.fare.total_price,
         fare_basis_codes=list(snapshot.fare.fare_basis_codes),
         validating_carrier="AA",
-        brand_name="MAIN",
-        brand_code="MAIN",
+        brand_name=snapshot.fare.brand_name,
+        brand_code=snapshot.fare.brand_code,
+        branded_components=list(snapshot.fare.branded_components),
+        brand_features=list(snapshot.fare.brand_features),
     )
     return ItineraryOption(
         segments=snapshot.segments,
@@ -195,6 +197,10 @@ async def test_builder_maps_adt_cnn_inf_counts(tmp_path):
     assert [x["passengerCode"] for x in payload["travelers"]] == ["ADT", "CNN", "INF"]
     qualifiers = payload["flightDetails"]["flightPricing"][0]["qualifiers"]
     assert qualifiers["validatingAirlineCode"] == "AA"
+    assert qualifiers["brandedFares"] == [{
+        "brandCode": "MAIN",
+        "flightIndices": [1],
+    }]
     assert [x["passengerCode"] for x in qualifiers["passengersPricing"]] == ["ADT", "CNN", "INF"]
 
 
@@ -267,6 +273,10 @@ async def test_builder_omits_automatic_flight_pricing_by_default_and_allows_expl
     assert len(experimental_pricing) == 1
     qualifiers = experimental_pricing[0]["qualifiers"]
     assert qualifiers["validatingAirlineCode"] == "AA"
+    assert qualifiers["brandedFares"] == [{
+        "brandCode": "MAIN",
+        "flightIndices": [1],
+    }]
     assert qualifiers["passengersPricing"] == [{
         "passengerCode": "ADT",
         "forcePassengerCode": False,
@@ -282,3 +292,175 @@ async def test_builder_omits_automatic_flight_pricing_by_default_and_allows_expl
         experimental_fingerprint
         == create_booking_payload_fingerprint(experimental_payload)
     )
+
+
+@pytest.mark.asyncio
+async def test_builder_branded_pricing_maps_same_brand_to_all_direct_legs(
+    tmp_path,
+):
+    snapshot = _snapshot(
+        segments=[
+            _segment(),
+            _segment(
+                departure_airport="MIA",
+                arrival_airport="EZE",
+                departure_country="US",
+                arrival_country="AR",
+                flight_number="901",
+                departure_at="2027-02-20T20:00:00",
+                arrival_at="2027-02-21T08:00:00",
+            ),
+        ],
+        legs=[
+            SearchLeg(
+                origin="EZE",
+                destination="MIA",
+                departure_date="2027-02-10",
+            ),
+            SearchLeg(
+                origin="MIA",
+                destination="EZE",
+                departure_date="2027-02-20",
+            ),
+        ],
+    )
+
+    repository, booking_id = await _ready(
+        tmp_path,
+        snapshot,
+        [{
+            "slot_index": 1,
+            "given_name": "TEST",
+            "surname": "PASSENGER",
+            "date_of_birth": "1985-04-15",
+            "gender": "M",
+        }],
+    )
+
+    payload = BookingCreatePnrPayloadBuilder(
+        booking_repository=repository,
+        include_flight_pricing=True,
+    ).build(booking_id)
+
+    qualifiers = payload["flightDetails"]["flightPricing"][0]["qualifiers"]
+
+    assert qualifiers["brandedFares"] == [{
+        "brandCode": "MAIN",
+        "flightIndices": [1, 2],
+    }]
+
+@pytest.mark.asyncio
+async def test_builder_blocks_branded_fare_without_exact_brand_code(tmp_path):
+    snapshot = _snapshot()
+    snapshot.fare.brand_name = "MAIN CABIN FLEXIBLE"
+    snapshot.fare.brand_code = None
+
+    repository, booking_id = await _ready(
+        tmp_path,
+        snapshot,
+        [{
+            "slot_index": 1,
+            "given_name": "TEST",
+            "surname": "PASSENGER",
+            "date_of_birth": "1985-04-15",
+            "gender": "M",
+        }],
+    )
+
+    with pytest.raises(
+        BookingCreatePnrPayloadError,
+        match="BrandID exacto",
+    ):
+        BookingCreatePnrPayloadBuilder(
+            booking_repository=repository,
+            include_flight_pricing=True,
+        ).build(booking_id)
+
+
+@pytest.mark.asyncio
+async def test_builder_blocks_mixed_brand_components_without_flight_mapping(
+    tmp_path,
+):
+    from app.models.itinerary import BrandedComponent
+
+    snapshot = _snapshot()
+    snapshot.fare.brand_code = "MAIN"
+    snapshot.fare.branded_components = [
+        BrandedComponent(
+            begin_airport="EZE",
+            end_airport="MIA",
+            brand_code="MAIN",
+        ),
+        BrandedComponent(
+            begin_airport="MIA",
+            end_airport="EZE",
+            brand_code="MAINFL",
+        ),
+    ]
+
+    repository, booking_id = await _ready(
+        tmp_path,
+        snapshot,
+        [{
+            "slot_index": 1,
+            "given_name": "TEST",
+            "surname": "PASSENGER",
+            "date_of_birth": "1985-04-15",
+            "gender": "M",
+        }],
+    )
+
+    with pytest.raises(
+        BookingCreatePnrPayloadError,
+        match="BrandID",
+    ):
+        BookingCreatePnrPayloadBuilder(
+            booking_repository=repository,
+            include_flight_pricing=True,
+        ).build(booking_id)
+
+@pytest.mark.asyncio
+async def test_builder_carries_mainfl_exactly_into_create_booking(tmp_path):
+    snapshot = _snapshot()
+    snapshot.fare.brand_name = "MAIN CABIN FLEXIBLE"
+    snapshot.fare.brand_code = "MAINFL"
+    snapshot.fare.fare_basis_codes = ["SLN7AHM5/L040"]
+    snapshot.fare.total_price = Decimal("781.33")
+    snapshot.fare.price_per_passenger = Decimal("781.33")
+
+    repository, booking_id = await _ready(
+        tmp_path,
+        snapshot,
+        [{
+            "slot_index": 1,
+            "given_name": "TEST",
+            "surname": "PASSENGER",
+            "date_of_birth": "1985-04-15",
+            "gender": "M",
+        }],
+    )
+
+    payload = BookingCreatePnrPayloadBuilder(
+        booking_repository=repository,
+        include_flight_pricing=True,
+    ).build(booking_id)
+
+    pricing = payload["flightDetails"]["flightPricing"]
+    assert len(pricing) == 1
+
+    qualifiers = pricing[0]["qualifiers"]
+
+    assert qualifiers["validatingAirlineCode"] == "AA"
+    assert qualifiers["brandedFares"] == [{
+        "brandCode": "MAINFL",
+        "flightIndices": [1],
+    }]
+    assert qualifiers["passengersPricing"] == [{
+        "passengerCode": "ADT",
+        "forcePassengerCode": False,
+        "numberOfpassengers": 1,
+    }]
+
+    # Fare basis is identity/audit data. It must NOT be used as forced pricing.
+    serialized = str(payload)
+    assert "SLN7AHM5/L040" not in serialized
