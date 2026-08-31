@@ -209,6 +209,20 @@ class BookingCreatePnrPayloadBuilder:
             qualifiers["validatingAirlineCode"] = validating
 
         if self.include_flight_pricing:
+            # Pricing currency is part of the frozen commercial selection.
+            # Do not let Sabre fall back to PCC/local currency.
+            currency = str(snapshot.fare.currency or "").strip().upper()
+            if (
+                len(currency) != 3
+                or not currency.isalpha()
+            ):
+                raise BookingCreatePnrPayloadError(
+                    "La tarifa revalidada no conserva una moneda ISO exacta "
+                    "para Create Booking."
+                )
+
+            qualifiers["currencyPricing"] = currency
+
             # The UI-selected/revalidated BrandID is the commercial product
             # instruction. Never reconstruct it from fare basis or silently
             # fall back to generic pricing.
