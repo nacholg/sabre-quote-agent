@@ -208,10 +208,53 @@ class BookingCreatePnrPayloadBuilder:
         if validating:
             qualifiers["validatingAirlineCode"] = validating
 
-        # Automatic Create Booking pricing remains experimental until exact
-        # branded-fare qualifiers are represented safely. The canonical v0.32
-        # flow sells the flights unpriced and prices/PQs them through the
-        # guarded SOAP workflow.
+        if self.include_flight_pricing:
+            # The UI-selected/revalidated BrandID is the commercial product
+            # instruction. Never reconstruct it from fare basis or silently
+            # fall back to generic pricing.
+            brand_code = str(snapshot.fare.brand_code or "").strip().upper()
+            brand_name = str(snapshot.fare.brand_name or "").strip()
+
+            if brand_name and not brand_code:
+                raise BookingCreatePnrPayloadError(
+                    "La tarifa seleccionada es branded pero Booking no conserva "
+                    "un BrandID exacto para Create Booking."
+                )
+
+            component_brand_codes = {
+                str(item.brand_code or "").strip().upper()
+                for item in snapshot.fare.branded_components
+                if str(item.brand_code or "").strip()
+            }
+
+            # Mixed BrandIDs require exact fare-component -> flight mapping.
+            # Do not invent that mapping until it is explicitly represented.
+            if (
+                len(component_brand_codes) > 1
+                or (
+                    component_brand_codes
+                    and brand_code
+                    and component_brand_codes != {brand_code}
+                )
+            ):
+                raise BookingCreatePnrPayloadError(
+                    "La tarifa tiene múltiples BrandID/fare components y esta "
+                    "versión todavía no puede mapearlos de forma inequívoca "
+                    "a flightIndices."
+                )
+
+            if brand_code:
+                qualifiers["brandedFares"] = [
+                    {
+                        "brandCode": brand_code,
+                        "flightIndices": list(
+                            range(1, len(snapshot.segments) + 1)
+                        ),
+                    }
+                ]
+
+        # Explicit branded pricing experiment. Default remains OFF until the
+        # payload is proven against Sabre CERT.
         flight_pricing = (
             [{"qualifiers": qualifiers}]
             if self.include_flight_pricing

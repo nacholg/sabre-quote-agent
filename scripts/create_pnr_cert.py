@@ -99,6 +99,10 @@ def _preview(
     if revision is not None:
         print(f"selected_fare_currency={revision.snapshot.fare.currency}")
         print(f"selected_fare_total={revision.snapshot.fare.total_price}")
+        print(
+            "selected_brand_code="
+            f"{revision.snapshot.fare.brand_code or '-'}"
+        )
     if readiness.warnings:
         print("warnings=" + ",".join(readiness.warnings))
     print("PII omitted from preview.")
@@ -255,7 +259,7 @@ def main() -> int:
             else ""
         )
         print(
-            "python scripts/create_pnr_cert.py "
+            "python -m scripts.create_pnr_cert "
             f"{booking.booking_id} "
             f"{optional_mode}"
             f"--client-request-id {suggested} "
