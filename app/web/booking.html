@@ -36,9 +36,9 @@
         <span>3</span>
         <strong>Review</strong>
       </div>
-      <div class="step" data-funnel-step="revalidation">
+      <div class="step" data-funnel-step="create-pnr">
         <span>4</span>
-        <strong>Revalidación</strong>
+        <strong>Crear PNR</strong>
       </div>
     </nav>
 
@@ -245,7 +245,8 @@
 
           <p class="muted">
             Revisá el producto congelado, los pasajeros y el contacto antes
-            de pasar a la revalidación con Sabre.
+            de crear el PNR. Sabre revalidará automáticamente la selección
+            exacta inmediatamente antes de reservar.
           </p>
 
           <div id="reviewStatus" class="message hidden"></div>
@@ -260,38 +261,39 @@
               Volver a contacto
             </button>
             <button
-              id="continueRevalidationButton"
+              id="continueCreatePnrButton"
               class="primary"
               type="button"
               disabled
             >
-              Continuar a Revalidación
+              Continuar a Crear PNR
             </button>
           </div>
         </article>
 
         <article
-          id="revalidationPanel"
+          id="createPnrPanel"
           class="panel funnel-panel hidden"
-          data-funnel-panel="revalidation"
+          data-funnel-panel="create-pnr"
         >
           <div class="section-head">
             <div>
               <span class="eyebrow">Paso 4</span>
-              <h2>Revalidación</h2>
+              <h2>Crear PNR</h2>
             </div>
-            <span id="revalidationBadge" class="dev-badge">
-              Sin revalidar
+            <span id="createPnrBadge" class="dev-badge">
+              Listo para verificar
             </span>
           </div>
 
           <p class="muted">
-            Sabre verificará nuevamente el vuelo, la clase de reserva y la
-            tarifa exacta congelada. Esta acción no crea un PNR.
+            Al confirmar, Sabre revalidará nuevamente vuelos, clases,
+            producto branded, moneda y precio. El PNR se creará únicamente
+            si la selección exacta continúa disponible sin cambios.
           </p>
 
-          <div id="revalidationStatus" class="message hidden"></div>
-          <div id="revalidationContent" class="revalidation-content"></div>
+          <div id="createPnrStatus" class="message hidden"></div>
+          <div id="createPnrContent" class="revalidation-content"></div>
 
           <div class="funnel-actions">
             <button
@@ -302,11 +304,11 @@
               Volver a Review
             </button>
             <button
-              id="runRevalidationButton"
+              id="createPnrButton"
               class="primary"
               type="button"
             >
-              Revalidar con Sabre
+              Crear PNR
             </button>
           </div>
         </article>
@@ -358,6 +360,6 @@
   <script src="/app/assets/booking.js"></script>
   <script src="/app/assets/booking-passengers.js"></script>
   <script src="/app/assets/booking-contact-review.js"></script>
-  <script src="/app/assets/booking-revalidation.js"></script>
+  <script src="/app/assets/booking-create-pnr.js"></script>
 </body>
 </html>

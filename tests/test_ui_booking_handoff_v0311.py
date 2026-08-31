@@ -11,14 +11,16 @@ def test_shopping_loads_booking_handoff_script() -> None:
     assert "/app/assets/booking-handoff.js" in html
 
 
-def test_booking_shell_has_four_step_funnel_without_create_pnr() -> None:
+def test_booking_shell_has_four_step_funnel_with_create_pnr() -> None:
     html = Path("app/web/booking.html").read_text(encoding="utf-8")
 
-    for label in ("Pasajeros", "Contacto", "Review", "Revalidación"):
+    for label in ("Pasajeros", "Contacto", "Review", "Crear PNR"):
         assert label in html
 
-    assert "create-pnr" not in html.lower()
+    assert 'data-funnel-step="create-pnr"' in html
+    assert 'id="createPnrButton"' in html
     assert "Continuar con pasajeros" in html
+    assert 'data-funnel-step="revalidation"' not in html
 
 
 def test_booking_handoff_requires_persisted_exact_fare() -> None:
