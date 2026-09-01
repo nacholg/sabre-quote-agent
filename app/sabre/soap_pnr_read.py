@@ -7,6 +7,8 @@ from uuid import uuid4
 from xml.etree import ElementTree as ET
 
 from app.config import Settings
+from app.models.pnr_workspace import PnrSnapshot
+from app.sabre.pnr_snapshot_parser import parse_pnr_snapshot
 from app.sabre.soap_client import SabreSoapClient, SoapResult
 from app.sabre.soap_session import SabreSoapSessionService, SoapSession
 
@@ -152,11 +154,23 @@ def application_result_signals(root: ET.Element) -> list[str]:
 
 
 def count_flight_segments(root: ET.Element) -> int:
-    return sum(
-        1
-        for node in root.iter()
-        if _local(node.tag) == "FlightSegment"
-    )
+    """Count booked air segments only, excluding duplicate PQ flight nodes."""
+
+    for node in root.iter():
+        if _local(node.tag) != "ReservationItems":
+            continue
+        count = 0
+        for item in list(node):
+            if _local(item.tag) != "Item":
+                continue
+            if any(
+                _local(descendant.tag) == "FlightSegment"
+                for descendant in item.iter()
+                if descendant is not item
+            ):
+                count += 1
+        return count
+    return 0
 
 
 @dataclass(frozen=True)
@@ -164,6 +178,7 @@ class SabreSoapPnrReadResult:
     confirmation_id: str
     application_status: str
     flight_segment_count: int
+    snapshot: PnrSnapshot
 
 
 class SabreSoapPnrReadService:
@@ -240,10 +255,16 @@ class SabreSoapPnrReadService:
                     f"status={status or '-'}; {detail}"
                 )
 
-            result = SabreSoapPnrReadResult(
-                confirmation_id=confirmation_id.strip().upper(),
+            snapshot = parse_pnr_snapshot(
+                root,
+                confirmation_id=confirmation_id,
                 application_status=status,
-                flight_segment_count=count_flight_segments(root),
+            )
+            result = SabreSoapPnrReadResult(
+                confirmation_id=snapshot.confirmation_id,
+                application_status=snapshot.application_status,
+                flight_segment_count=len(snapshot.segments),
+                snapshot=snapshot,
             )
         except Exception:
             self._close_best_effort(session)
