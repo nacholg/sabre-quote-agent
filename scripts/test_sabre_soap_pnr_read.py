@@ -8,8 +8,11 @@ from app.models.pnr_workspace import PnrSnapshot
 from app.config import get_settings
 from app.models.booking import BookingStatus, PnrAttemptStatus
 from app.sabre.soap_pnr_read import SabreSoapPnrReadService
+from app.services.booking_contact_service import BookingContactService
+from app.services.booking_passenger_service import BookingPassengerService
 from app.services.booking_pnr_attempt_service import BookingPnrAttemptService
 from app.services.booking_repository import get_booking_repository
+from app.services.pnr_assessment_service import PnrAssessmentService
 
 
 def _compact_counter(values: list[str]) -> str:
@@ -164,6 +167,47 @@ def main() -> int:
     print("=== NORMALIZED PNR SNAPSHOT (PII-SAFE) ===")
     for line in _safe_snapshot_lines(result.snapshot):
         print(line)
+
+    passengers = BookingPassengerService(
+        booking_repository=repository
+    ).get(booking.booking_id)
+    contact = BookingContactService(
+        booking_repository=repository
+    ).get(booking.booking_id)
+    assessment = PnrAssessmentService().assess(
+        booking=booking,
+        passengers=passengers,
+        contact=contact,
+        snapshot=result.snapshot,
+    )
+
+    print()
+    print("=== PNR ASSESSMENT (PII-SAFE) ===")
+    print(f"assessment_status={assessment.assessment.status.value}")
+    print(f"next_action_code={assessment.next_action.code.value}")
+    print(f"next_action_label={assessment.next_action.label}")
+    print(
+        "assessment_warnings="
+        + (",".join(assessment.assessment.warnings) or "-")
+    )
+    print(
+        "assessment_unknowns="
+        + (",".join(assessment.assessment.unknowns) or "-")
+    )
+    print(
+        "assessment_errors="
+        + (",".join(assessment.assessment.errors) or "-")
+    )
+    for check in assessment.assessment.checks:
+        print(
+            "assessment_check="
+            f"{check.code} "
+            f"status={check.status.value} "
+            f"blocking={str(check.blocking).lower()} "
+            f"expected={check.expected or '-'} "
+            f"actual={check.actual or '-'} "
+            f"message={check.message or '-'}"
+        )
 
     if result.flight_segment_count != expected_segments:
         raise SystemExit(

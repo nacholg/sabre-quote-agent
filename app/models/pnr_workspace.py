@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -91,3 +92,55 @@ class PnrSnapshot(BaseModel):
     price_quotes: list[PnrPriceQuote] = Field(default_factory=list)
     ticketing: PnrTicketing = Field(default_factory=PnrTicketing)
     special_services: list[PnrSpecialService] = Field(default_factory=list)
+
+
+class PnrCheckStatus(StrEnum):
+    PASS = "pass"
+    WARN = "warn"
+    FAIL = "fail"
+    UNKNOWN = "unknown"
+
+
+class PnrWorkspaceStatus(StrEnum):
+    SYNCING = "syncing"
+    VERIFIED = "verified"
+    NEEDS_ATTENTION = "needs_attention"
+    READY_FOR_TICKETING = "ready_for_ticketing"
+    READ_ERROR = "read_error"
+
+
+class PnrNextActionCode(StrEnum):
+    ISSUE_TICKET = "issue_ticket"
+    STORE_OR_VERIFY_PRICING = "store_or_verify_pricing"
+    REVIEW_ITINERARY = "review_itinerary"
+    REVIEW_PASSENGERS = "review_passengers"
+    REVIEW_CONTACT = "review_contact"
+    REVIEW_PRICING = "review_pricing"
+
+
+class PnrAssessmentCheck(BaseModel):
+    code: str
+    label: str
+    status: PnrCheckStatus
+    blocking: bool = False
+    expected: str | None = None
+    actual: str | None = None
+    message: str | None = None
+
+
+class PnrAssessment(BaseModel):
+    status: PnrWorkspaceStatus
+    checks: list[PnrAssessmentCheck] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
+
+class PnrNextAction(BaseModel):
+    code: PnrNextActionCode
+    label: str
+
+
+class PnrAssessmentResult(BaseModel):
+    assessment: PnrAssessment
+    next_action: PnrNextAction
