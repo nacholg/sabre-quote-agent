@@ -144,3 +144,27 @@ class PnrNextAction(BaseModel):
 class PnrAssessmentResult(BaseModel):
     assessment: PnrAssessment
     next_action: PnrNextAction
+
+
+class PnrWorkspaceSnapshotRecord(BaseModel):
+    booking_id: str
+    confirmation_id: str
+    provider: str
+    environment: Literal["cert", "prod"]
+    retrieved_at: str
+    snapshot: PnrSnapshot
+
+
+class PnrWorkspaceResponse(BaseModel):
+    booking_id: str
+    confirmation_id: str
+    provider: str
+    environment: Literal["cert", "prod"]
+    status: PnrWorkspaceStatus
+    retrieved_at: str | None = None
+    stale: bool = False
+    snapshot: PnrSnapshot | None = None
+    assessment: PnrAssessment | None = None
+    next_action: PnrNextAction | None = None
+    read_error_code: str | None = None
+    read_error_message: str | None = None

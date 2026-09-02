@@ -38,7 +38,8 @@ def test_pnr_attempt_migration_from_booking_foundation(
     engine = create_engine(database_url)
     inspector = inspect(engine)
     assert inspector.has_table("booking_pnr_attempts")
-    assert _version(engine) == "20260827_05"
+    assert inspector.has_table("booking_pnr_snapshots")
+    assert _version(engine) == "20260901_06"
 
     columns = {
         item["name"]

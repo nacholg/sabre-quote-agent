@@ -13,6 +13,7 @@ from app.models.booking import (
     BookingRevalidationResponse,
     BookingReviewResponse,
 )
+from app.models.pnr_workspace import PnrWorkspaceResponse
 from app.services.booking_contact_service import (
     BookingContactLockedError,
     BookingContactRevisionConflictError,
@@ -45,6 +46,10 @@ from app.services.booking_pnr_execution_service import (
     BookingPnrExecutionBindingError,
     BookingPnrExecutionLocalConsistencyError,
     BookingPnrExecutionReconciliationRequiredError,
+)
+from app.services.pnr_workspace_service import (
+    PnrWorkspaceStateError,
+    get_pnr_workspace_service,
 )
 from app.services.booking_review_service import get_booking_review_service
 from app.services.booking_revalidation_service import (
@@ -314,6 +319,28 @@ async def create_booking_pnr(
     ) as exc:
         raise HTTPException(
             status_code=422,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get(
+    "/bookings/{booking_id}/pnr-workspace",
+    response_model=PnrWorkspaceResponse,
+    summary="Sincronizar y leer PNR Workspace",
+)
+async def get_booking_pnr_workspace(
+    booking_id: str,
+) -> PnrWorkspaceResponse:
+    try:
+        return get_pnr_workspace_service().get(booking_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Reserva no encontrada: {booking_id}",
+        )
+    except PnrWorkspaceStateError as exc:
+        raise HTTPException(
+            status_code=409,
             detail=str(exc),
         ) from exc
 
