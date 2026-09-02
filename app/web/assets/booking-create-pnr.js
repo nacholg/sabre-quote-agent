@@ -113,6 +113,29 @@
     }
   }
 
+  function workspaceUrl() {
+    return (
+      `/app/bookings/${encodeURIComponent(bookingId)}` +
+      `/pnr-workspace`
+    );
+  }
+
+  function isWorkspaceReady(attempt) {
+    return Boolean(
+      attempt?.status === "succeeded" &&
+      String(attempt?.confirmation_id || "").trim()
+    );
+  }
+
+  function transitionToWorkspace(attempt) {
+    if (!isWorkspaceReady(attempt)) return false;
+
+    // The funnel is complete. Replace it in browser history so Back
+    // does not return the agent to a screen that could imply Create again.
+    window.location.replace(workspaceUrl());
+    return true;
+  }
+
   function renderReady(review) {
     const badge = $("createPnrBadge");
     if (badge) {
@@ -152,6 +175,10 @@
 
   function renderAttempt(attempt) {
     clientRequestId = attempt.client_request_id || clientRequestId;
+
+    if (transitionToWorkspace(attempt)) {
+      return;
+    }
 
     const status = attempt.status;
     const badge = $("createPnrBadge");
@@ -434,6 +461,16 @@
     }
   }
 
+  async function redirectPersistedSuccess() {
+    try {
+      const attempt = await getAttempt();
+      transitionToWorkspace(attempt);
+    } catch {
+      // A lookup problem is not evidence that Create succeeded.
+      // Keep the funnel visible and let normal recovery semantics apply.
+    }
+  }
+
   window.addEventListener("booking:review-state", event => {
     latestReview = event.detail || latestReview;
   });
@@ -456,4 +493,6 @@
   document
     .querySelector('[data-funnel-step="create-pnr"]')
     ?.addEventListener("click", openCreatePnr);
+
+  redirectPersistedSuccess();
 })();
