@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Patagonik Travel · Reserva</title>
+  <meta name="theme-color" content="#0f2742">
+  <link rel="stylesheet" href="/app/assets/booking.css">
+  <link rel="stylesheet" href="/app/assets/pnr-workspace.css">
+</head>
+<body>
+  <header class="booking-header">
+    <a class="brand" href="/app" aria-label="Volver a cotizaciones">
+      <span class="brand-mark">P</span>
+      <span>
+        <strong>Patagonik Travel</strong>
+        <small>PNR Workspace</small>
+      </span>
+    </a>
+
+    <div class="booking-head-meta">
+      <span id="workspaceStatus" class="status-pill workspace-status loading">
+        Sincronizando…
+      </span>
+      <strong id="headerLocator">Reserva</strong>
+    </div>
+  </header>
+
+  <main class="booking-page pnr-page">
+    <div
+      id="workspaceLoading"
+      class="workspace-loading"
+      role="status"
+      aria-live="polite"
+    >
+      <span class="loading-spinner" aria-hidden="true"></span>
+      <div>
+        <strong>Verificando la reserva en Sabre</strong>
+        <small>Estamos leyendo el estado actual del PNR.</small>
+      </div>
+    </div>
+
+    <div
+      id="workspaceError"
+      class="message error hidden"
+      role="alert"
+    ></div>
+
+    <div id="pnrWorkspace" class="pnr-workspace hidden">
+      <section
+        id="workspaceHero"
+        class="workspace-hero"
+        aria-labelledby="workspaceTitle"
+      >
+        <div class="workspace-hero-copy">
+          <span class="eyebrow">Reserva Sabre</span>
+          <div class="workspace-title-row">
+            <h1 id="workspaceTitle">Reserva —</h1>
+            <span id="heroStatus" class="workspace-state-badge loading">
+              Verificando
+            </span>
+          </div>
+          <p id="workspaceSummary" class="workspace-summary">
+            Verificando el estado actual de la reserva.
+          </p>
+
+          <div class="workspace-sync-line">
+            <span id="syncState">Última verificación: —</span>
+            <span id="staleState" class="stale-label hidden">
+              Mostrando última lectura válida
+            </span>
+          </div>
+        </div>
+
+        <button
+          id="refreshWorkspaceButton"
+          class="secondary-action refresh-button"
+          type="button"
+        >
+          Actualizar desde Sabre
+        </button>
+      </section>
+
+      <div id="readErrorBanner" class="read-error-banner hidden">
+        <strong>No pudimos verificar el PNR en este momento.</strong>
+        <span id="readErrorMessage">
+          La reserva ya fue creada. Podés volver a intentar la sincronización.
+        </span>
+      </div>
+
+      <section
+        id="healthSummary"
+        class="health-grid"
+        aria-label="Estado general de la reserva"
+      >
+        <article class="health-card" data-health="itinerary">
+          <span class="health-icon" aria-hidden="true">✈</span>
+          <div>
+            <small>Vuelos</small>
+            <strong id="healthItinerary">—</strong>
+          </div>
+        </article>
+
+        <article class="health-card" data-health="passengers">
+          <span class="health-icon" aria-hidden="true">◎</span>
+          <div>
+            <small>Pasajeros</small>
+            <strong id="healthPassengers">—</strong>
+          </div>
+        </article>
+
+        <article class="health-card" data-health="contact">
+          <span class="health-icon" aria-hidden="true">@</span>
+          <div>
+            <small>Contacto</small>
+            <strong id="healthContact">—</strong>
+          </div>
+        </article>
+
+        <article class="health-card" data-health="pricing">
+          <span class="health-icon" aria-hidden="true">$</span>
+          <div>
+            <small>Tarifa</small>
+            <strong id="healthPricing">—</strong>
+          </div>
+        </article>
+      </section>
+
+      <div id="workspaceContent" class="workspace-layout">
+        <section class="workspace-main">
+          <article class="panel workspace-panel">
+            <div class="section-head">
+              <div>
+                <span class="eyebrow">Itinerario actual</span>
+                <h2>Vuelos en Sabre</h2>
+              </div>
+              <span id="segmentCountBadge" class="workspace-count-badge">—</span>
+            </div>
+            <div id="pnrSegments" class="pnr-segments"></div>
+          </article>
+
+          <article class="panel workspace-panel">
+            <div class="section-head">
+              <div>
+                <span class="eyebrow">Pasajeros y contacto</span>
+                <h2>Datos de la reserva</h2>
+              </div>
+            </div>
+
+            <div class="workspace-data-columns">
+              <section>
+                <h3>Pasajeros</h3>
+                <div id="pnrPassengers" class="workspace-data-list"></div>
+              </section>
+
+              <section>
+                <h3>Contacto</h3>
+                <div id="pnrContacts" class="workspace-data-list"></div>
+              </section>
+            </div>
+          </article>
+
+          <article class="panel workspace-panel">
+            <div class="section-head">
+              <div>
+                <span class="eyebrow">Pricing</span>
+                <h2>Tarifa almacenada</h2>
+              </div>
+              <span id="pricingBadge" class="workspace-count-badge">—</span>
+            </div>
+
+            <div id="pricingEmpty" class="pricing-empty hidden">
+              <strong>No hay una tarifa almacenada (PQ) en Sabre.</strong>
+              <p>
+                La reserva existe, pero la tarifa debe guardarse o verificarse
+                antes de considerarla lista para emitir.
+              </p>
+              <div id="expectedFare" class="expected-fare hidden"></div>
+            </div>
+
+            <div id="pnrPricing" class="pricing-list"></div>
+          </article>
+
+          <article class="panel workspace-panel">
+            <div class="section-head">
+              <div>
+                <span class="eyebrow">Control automático</span>
+                <h2>Verificación contra el Booking</h2>
+              </div>
+            </div>
+
+            <p class="muted assessment-intro">
+              Comparamos lo que Sabre devuelve ahora contra la selección
+              congelada que originó esta reserva.
+            </p>
+
+            <div id="assessmentIssues" class="assessment-list"></div>
+
+            <details id="assessmentDetails" class="assessment-details">
+              <summary>Ver todos los controles</summary>
+              <div id="assessmentChecks" class="assessment-list"></div>
+            </details>
+          </article>
+        </section>
+
+        <aside class="workspace-side">
+          <article class="panel next-action-card">
+            <span class="eyebrow">Próximo paso</span>
+            <h2 id="nextActionTitle">Verificando…</h2>
+            <p id="nextActionDescription">
+              Esperando la lectura del PNR.
+            </p>
+            <div id="nextActionReason" class="next-action-reason hidden"></div>
+          </article>
+
+          <article class="panel workspace-panel">
+            <div class="section-head">
+              <div>
+                <span class="eyebrow">Ticketing</span>
+                <h2>Emisión</h2>
+              </div>
+            </div>
+
+            <dl class="workspace-kv">
+              <div>
+                <dt>Advisory</dt>
+                <dd id="ticketingAdvisory">—</dd>
+              </div>
+              <div>
+                <dt>Deadline</dt>
+                <dd id="ticketingDeadline">—</dd>
+              </div>
+              <div>
+                <dt>Tipo</dt>
+                <dd id="ticketingType">—</dd>
+              </div>
+            </dl>
+          </article>
+
+          <article class="panel workspace-panel">
+            <div class="section-head">
+              <div>
+                <span class="eyebrow">Servicios</span>
+                <h2>SSR detectados</h2>
+              </div>
+            </div>
+            <div id="specialServices" class="ssr-list"></div>
+          </article>
+
+          <details class="panel technical-details">
+            <summary>Detalles técnicos</summary>
+            <dl class="workspace-kv">
+              <div>
+                <dt>Booking</dt>
+                <dd id="technicalBookingId">—</dd>
+              </div>
+              <div>
+                <dt>Localizador</dt>
+                <dd id="technicalLocator">—</dd>
+              </div>
+              <div>
+                <dt>Entorno</dt>
+                <dd id="technicalEnvironment">—</dd>
+              </div>
+              <div>
+                <dt>Proveedor</dt>
+                <dd id="technicalProvider">—</dd>
+              </div>
+              <div>
+                <dt>Snapshot</dt>
+                <dd id="technicalRetrievedAt">—</dd>
+              </div>
+            </dl>
+
+            <a id="sourceQuoteLink" class="secondary-link" href="/app">
+              Volver a la cotización
+            </a>
+          </details>
+        </aside>
+      </div>
+    </div>
+  </main>
+
+  <script src="/app/assets/pnr-workspace.js"></script>
+</body>
+</html>

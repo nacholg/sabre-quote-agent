@@ -38,6 +38,7 @@ app.include_router(booking_router)
 WEB_ROOT = Path(__file__).resolve().parent / "web"
 WEB_INDEX = WEB_ROOT / "index.html"
 WEB_BOOKING = WEB_ROOT / "booking.html"
+WEB_PNR_WORKSPACE = WEB_ROOT / "pnr-workspace.html"
 WEB_ASSETS = WEB_ROOT / "assets"
 
 app.mount(
@@ -87,6 +88,17 @@ async def web_app() -> HTMLResponse:
 )
 async def booking_web_app(booking_id: str) -> HTMLResponse:
     return HTMLResponse(WEB_BOOKING.read_text(encoding="utf-8"))
+
+
+@app.get(
+    "/app/bookings/{booking_id}/pnr-workspace",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+async def pnr_workspace_web_app(booking_id: str) -> HTMLResponse:
+    return HTMLResponse(
+        WEB_PNR_WORKSPACE.read_text(encoding="utf-8")
+    )
 
 
 @app.get("/health")
