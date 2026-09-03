@@ -255,8 +255,11 @@ class _Reader:
 def _service(
     *,
     booking: BookingRecord | None = None,
-    reader: _Reader | None = None,
+    reader=None,
     snapshot_repository: _SnapshotRepository | None = None,
+    read_attempts: int = 1,
+    backoff_seconds: float = 0.0,
+    sleeper=None,
 ) -> PnrWorkspaceService:
     return PnrWorkspaceService(
         booking_repository=_BookingRepository(
@@ -272,6 +275,9 @@ def _service(
         reader_factory=lambda settings: (
             reader or _Reader(snapshot=_snapshot())
         ),
+        read_attempts=read_attempts,
+        backoff_seconds=backoff_seconds,
+        sleeper=sleeper or (lambda _: None),
     )
 
 
@@ -340,3 +346,173 @@ def test_workspace_rejects_booking_before_pnr_created() -> None:
 
     with pytest.raises(PnrWorkspaceStateError):
         service.get("B-TEST")
+
+class _SequenceReader:
+    def __init__(self, outcomes) -> None:
+        self.outcomes = list(outcomes)
+        self.calls = 0
+
+    def retrieve(self, confirmation_id: str):
+        index = min(self.calls, len(self.outcomes) - 1)
+        outcome = self.outcomes[index]
+        self.calls += 1
+
+        if isinstance(outcome, Exception):
+            raise outcome
+        if isinstance(outcome, PnrSnapshot):
+            return SimpleNamespace(
+                confirmation_id=outcome.confirmation_id,
+                snapshot=outcome,
+            )
+        return outcome
+
+
+def test_transient_read_errors_retry_then_persist_success() -> None:
+    delays: list[float] = []
+    reader = _SequenceReader(
+        [
+            RuntimeError("temporary 1"),
+            RuntimeError("temporary 2"),
+            _snapshot(),
+        ]
+    )
+    snapshots = _SnapshotRepository()
+
+    response = _service(
+        reader=reader,
+        snapshot_repository=snapshots,
+        read_attempts=4,
+        backoff_seconds=0.5,
+        sleeper=delays.append,
+    ).get("B-TEST")
+
+    assert reader.calls == 3
+    assert delays == [0.5, 1.0]
+    assert snapshots.saved == 1
+    assert response.read_error_code is None
+    assert response.stale is False
+
+
+def test_incomplete_segment_shape_retries_before_persisting() -> None:
+    delays: list[float] = []
+    incomplete = _snapshot().model_copy(
+        update={"segments": []}
+    )
+    reader = _SequenceReader([incomplete, _snapshot()])
+    snapshots = _SnapshotRepository()
+
+    response = _service(
+        reader=reader,
+        snapshot_repository=snapshots,
+        read_attempts=4,
+        backoff_seconds=0.5,
+        sleeper=delays.append,
+    ).get("B-TEST")
+
+    assert reader.calls == 2
+    assert delays == [0.5]
+    assert snapshots.saved == 1
+    assert response.snapshot is not None
+    assert len(response.snapshot.segments) == 1
+
+
+def test_persistent_valid_segment_mismatch_is_real_assessment_data() -> None:
+    incomplete = _snapshot().model_copy(
+        update={"segments": []}
+    )
+    reader = _SequenceReader([incomplete] * 4)
+    snapshots = _SnapshotRepository()
+
+    response = _service(
+        reader=reader,
+        snapshot_repository=snapshots,
+        read_attempts=4,
+    ).get("B-TEST")
+
+    assert reader.calls == 4
+    assert snapshots.saved == 1
+    assert response.status == PnrWorkspaceStatus.NEEDS_ATTENTION
+    assert response.read_error_code is None
+    assert response.next_action is not None
+    assert response.next_action.code == PnrNextActionCode.REVIEW_ITINERARY
+
+
+def test_retry_exhaustion_returns_safe_read_error() -> None:
+    delays: list[float] = []
+    reader = _SequenceReader(
+        [RuntimeError("provider secret detail")] * 4
+    )
+
+    response = _service(
+        reader=reader,
+        read_attempts=4,
+        backoff_seconds=0.5,
+        sleeper=delays.append,
+    ).get("B-TEST")
+
+    assert reader.calls == 4
+    assert delays == [0.5, 1.0, 2.0]
+    assert response.status == PnrWorkspaceStatus.READ_ERROR
+    assert response.read_error_code == "PNR_READ_FAILED"
+    assert "provider secret detail" not in (
+        response.read_error_message or ""
+    )
+
+
+def test_locator_mismatch_is_not_retried() -> None:
+    delays: list[float] = []
+    mismatched = _snapshot().model_copy(
+        update={"confirmation_id": "ABCDEF"}
+    )
+    reader = _SequenceReader([mismatched])
+    snapshots = _SnapshotRepository()
+
+    response = _service(
+        reader=reader,
+        snapshot_repository=snapshots,
+        read_attempts=4,
+        backoff_seconds=0.5,
+        sleeper=delays.append,
+    ).get("B-TEST")
+
+    assert reader.calls == 1
+    assert delays == []
+    assert snapshots.saved == 0
+    assert response.status == PnrWorkspaceStatus.READ_ERROR
+    assert response.read_error_code == "PNR_LOCATOR_MISMATCH"
+
+
+def test_incomplete_then_errors_preserves_previous_snapshot_as_stale() -> None:
+    incomplete = _snapshot().model_copy(
+        update={"segments": []}
+    )
+    cached = PnrWorkspaceSnapshotRecord(
+        booking_id="B-TEST",
+        confirmation_id="OVFOTM",
+        provider="sabre_travel_itinerary_read",
+        environment="cert",
+        retrieved_at="2026-09-01T19:00:00+00:00",
+        snapshot=_snapshot(),
+    )
+    snapshots = _SnapshotRepository(cached)
+    reader = _SequenceReader(
+        [
+            incomplete,
+            RuntimeError("temporary 1"),
+            RuntimeError("temporary 2"),
+            RuntimeError("temporary 3"),
+        ]
+    )
+
+    response = _service(
+        reader=reader,
+        snapshot_repository=snapshots,
+        read_attempts=4,
+    ).get("B-TEST")
+
+    assert reader.calls == 4
+    assert snapshots.saved == 0
+    assert response.status == PnrWorkspaceStatus.READ_ERROR
+    assert response.stale is True
+    assert response.snapshot is not None
+    assert len(response.snapshot.segments) == 1

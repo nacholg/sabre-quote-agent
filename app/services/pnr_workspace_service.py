@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from time import sleep
 from typing import Any, Callable
 
 from app.config import get_settings
@@ -34,6 +35,8 @@ _READ_ERROR_MESSAGE = (
     "La reserva fue creada, pero no se pudo verificar su estado actual "
     "en Sabre. Reintentá la sincronización."
 )
+_DEFAULT_READ_ATTEMPTS = 4
+_DEFAULT_BACKOFF_SECONDS = 0.5
 
 
 class PnrWorkspaceStateError(RuntimeError):
@@ -59,7 +62,15 @@ class PnrWorkspaceService:
         assessment_service: PnrAssessmentService | None = None,
         settings_loader: Callable[[str], Any] | None = None,
         reader_factory: Callable[[Any], Any] | None = None,
+        read_attempts: int = _DEFAULT_READ_ATTEMPTS,
+        backoff_seconds: float = _DEFAULT_BACKOFF_SECONDS,
+        sleeper: Callable[[float], None] | None = None,
     ) -> None:
+        if read_attempts < 1:
+            raise ValueError("read_attempts debe ser >= 1.")
+        if backoff_seconds < 0:
+            raise ValueError("backoff_seconds debe ser >= 0.")
+
         self.booking_repository = (
             booking_repository or get_booking_repository()
         )
@@ -95,6 +106,9 @@ class PnrWorkspaceService:
             reader_factory
             or (lambda settings: SabreSoapPnrReadService(settings))
         )
+        self.read_attempts = read_attempts
+        self.backoff_seconds = backoff_seconds
+        self.sleeper = sleeper or sleep
 
     def _booking_and_locator(
         self,
@@ -203,6 +217,64 @@ class PnrWorkspaceService:
             read_error_message=_READ_ERROR_MESSAGE,
         )
 
+    @staticmethod
+    def _expected_segment_count(
+        booking: BookingRecord,
+    ) -> int | None:
+        revision = booking.accepted_offer_revision
+        if revision is None:
+            return None
+        return len(revision.snapshot.segments)
+
+    def _read_with_retry(
+        self,
+        *,
+        booking: BookingRecord,
+        reader: Any,
+        confirmation_id: str,
+    ) -> Any:
+        expected_segments = self._expected_segment_count(booking)
+        last_error: Exception | None = None
+        last_valid_result: Any | None = None
+        last_attempt_was_valid = False
+
+        for attempt_index in range(self.read_attempts):
+            try:
+                result = reader.retrieve(confirmation_id)
+
+                if (
+                    result.confirmation_id != confirmation_id
+                    or result.snapshot.confirmation_id != confirmation_id
+                ):
+                    return result
+
+                actual_segments = len(result.snapshot.segments)
+            except Exception as exc:
+                last_error = exc
+                last_attempt_was_valid = False
+            else:
+                last_valid_result = result
+                last_error = None
+                last_attempt_was_valid = True
+
+                if (
+                    expected_segments is None
+                    or actual_segments == expected_segments
+                ):
+                    return result
+
+            if attempt_index + 1 < self.read_attempts:
+                delay = self.backoff_seconds * (2 ** attempt_index)
+                self.sleeper(delay)
+
+        if last_valid_result is not None and last_attempt_was_valid:
+            return last_valid_result
+
+        if last_error is not None:
+            raise last_error
+
+        raise RuntimeError("Sabre PNR read agotó los intentos sin resultado.")
+
     def get(
         self,
         booking_id: str,
@@ -214,7 +286,11 @@ class PnrWorkspaceService:
         try:
             settings = self.settings_loader(booking.environment)
             reader = self.reader_factory(settings)
-            result = reader.retrieve(confirmation_id)
+            result = self._read_with_retry(
+                booking=booking,
+                reader=reader,
+                confirmation_id=confirmation_id,
+            )
         except Exception:
             # A post-create read failure must never be reclassified as a
             # Create PNR failure. The UI can safely retry this GET.
