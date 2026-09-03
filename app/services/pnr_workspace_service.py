@@ -24,6 +24,9 @@ from app.services.booking_repository import (
     get_booking_repository,
 )
 from app.services.pnr_assessment_service import PnrAssessmentService
+from app.services.pnr_pre_issue_readiness_service import (
+    build_pnr_pre_issue_readiness,
+)
 from app.services.pnr_workspace_snapshot_repository import (
     PnrWorkspaceSnapshotRepository,
 )
@@ -161,15 +164,22 @@ class PnrWorkspaceService:
         read_error_message: str | None = None,
     ) -> PnrWorkspaceResponse:
         assessment = self._assessment(booking, record)
+        final_status = status_override or assessment.assessment.status
+        pre_issue_readiness = build_pnr_pre_issue_readiness(
+            confirmation_id=record.confirmation_id,
+            retrieved_at=record.retrieved_at,
+            stale=stale,
+            workspace_status=final_status,
+            read_error_code=read_error_code,
+            assessment=assessment.assessment,
+            ticket_candidate=assessment.ticket_candidate,
+        )
         return PnrWorkspaceResponse(
             booking_id=booking.booking_id,
             confirmation_id=record.confirmation_id,
             provider=record.provider,
             environment=booking.environment,
-            status=(
-                status_override
-                or assessment.assessment.status
-            ),
+            status=final_status,
             retrieved_at=record.retrieved_at,
             stale=stale,
             snapshot=record.snapshot,
@@ -178,6 +188,7 @@ class PnrWorkspaceService:
             pricing_selection=assessment.pricing_selection,
             pricing_coverage=assessment.pricing_coverage,
             ticket_candidate=assessment.ticket_candidate,
+            pre_issue_readiness=pre_issue_readiness,
             read_error_code=read_error_code,
             read_error_message=read_error_message,
         )
@@ -205,6 +216,15 @@ class PnrWorkspaceService:
                 read_error_message=_READ_ERROR_MESSAGE,
             )
 
+        pre_issue_readiness = build_pnr_pre_issue_readiness(
+            confirmation_id=confirmation_id,
+            retrieved_at=None,
+            stale=False,
+            workspace_status=PnrWorkspaceStatus.READ_ERROR,
+            read_error_code=code,
+            assessment=None,
+            ticket_candidate=None,
+        )
         return PnrWorkspaceResponse(
             booking_id=booking.booking_id,
             confirmation_id=confirmation_id,
@@ -216,6 +236,7 @@ class PnrWorkspaceService:
             snapshot=None,
             assessment=None,
             next_action=None,
+            pre_issue_readiness=pre_issue_readiness,
             read_error_code=code,
             read_error_message=_READ_ERROR_MESSAGE,
         )

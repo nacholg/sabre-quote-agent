@@ -130,6 +130,20 @@ class PnrTicketCandidate(BaseModel):
     message: str | None = None
 
 
+class PnrPreIssueReadinessStatus(StrEnum):
+    READY = "ready"
+    BLOCKED = "blocked"
+
+
+class PnrPreIssueReadiness(BaseModel):
+    status: PnrPreIssueReadinessStatus
+    confirmation_id: str
+    retrieved_at: str | None = None
+    fresh_remote_read: bool = False
+    blockers: list[str] = Field(default_factory=list)
+    message: str | None = None
+
+
 class PnrTicketing(BaseModel):
     ticket_type: str | None = None
     ticketing_text: str | None = None
@@ -238,5 +252,6 @@ class PnrWorkspaceResponse(BaseModel):
     pricing_selection: PnrPricingSelection | None = None
     pricing_coverage: PnrPricingCoverage | None = None
     ticket_candidate: PnrTicketCandidate | None = None
+    pre_issue_readiness: PnrPreIssueReadiness | None = None
     read_error_code: str | None = None
     read_error_message: str | None = None
