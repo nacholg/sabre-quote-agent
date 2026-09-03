@@ -17,11 +17,14 @@ from app.models.pnr_workspace import (
     PnrCheckStatus,
     PnrNextAction,
     PnrNextActionCode,
+    PnrPricingCoverage,
+    PnrPricingCoverageStatus,
     PnrPricingSelection,
     PnrPricingSelectionStatus,
     PnrSnapshot,
     PnrWorkspaceStatus,
 )
+from app.services.pnr_pricing_coverage_service import assess_pnr_pricing_coverage
 from app.services.pnr_pricing_selection_service import select_pnr_pricing
 
 
@@ -118,6 +121,7 @@ class PnrAssessmentService:
             raise ValueError("Booking sin oferta aceptada para assessment.")
 
         pricing_selection = select_pnr_pricing(snapshot)
+        pricing_coverage = assess_pnr_pricing_coverage(snapshot, pricing_selection)
         checks = [
             *self._segment_checks(revision.snapshot.segments, snapshot),
             *self._passenger_checks(passengers, snapshot),
@@ -126,6 +130,7 @@ class PnrAssessmentService:
                 revision.snapshot.fare,
                 snapshot,
                 pricing_selection,
+                pricing_coverage,
             ),
             *self._ticketing_checks(snapshot),
         ]
@@ -157,6 +162,7 @@ class PnrAssessmentService:
             assessment=assessment,
             next_action=self._next_action(checks),
             pricing_selection=pricing_selection,
+            pricing_coverage=pricing_coverage,
         )
 
     @staticmethod
@@ -378,6 +384,7 @@ class PnrAssessmentService:
         fare,
         snapshot: PnrSnapshot,
         selection: PnrPricingSelection,
+        coverage: PnrPricingCoverage,
     ):
         quotes = snapshot.price_quotes
         present = bool(quotes)
@@ -492,6 +499,23 @@ class PnrAssessmentService:
                 expected="PQ status ACTIVE",
                 actual=active_actual,
                 message=selection.message,
+            ),
+            _check(
+                "PRICING_PASSENGER_COVERAGE",
+                "Cobertura de pasajeros por pricing",
+                (
+                    PnrCheckStatus.PASS
+                    if coverage.status == PnrPricingCoverageStatus.EXACT
+                    else (
+                        PnrCheckStatus.UNKNOWN
+                        if coverage.status == PnrPricingCoverageStatus.UNKNOWN
+                        else PnrCheckStatus.FAIL
+                    )
+                ),
+                blocking=(selection.status == PnrPricingSelectionStatus.SELECTED),
+                expected="cada pasajero cubierto exactamente 1 vez",
+                actual=(f"{coverage.covered_passenger_count}/{coverage.passenger_count} cubiertos"),
+                message=coverage.message,
             ),
             _check(
                 "CURRENCY_MATCH",
@@ -630,6 +654,11 @@ class PnrAssessmentService:
             code, label = (
                 PnrNextActionCode.REVIEW_PRICING,
                 "Revisar cuál pricing ACTIVE corresponde emitir.",
+            )
+        elif unresolved("PRICING_PASSENGER_COVERAGE"):
+            code, label = (
+                PnrNextActionCode.REVIEW_PRICING,
+                "Revisar cobertura de pasajeros por las PQ ACTIVE.",
             )
         elif any(
             unresolved(name)

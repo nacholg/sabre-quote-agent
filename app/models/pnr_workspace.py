@@ -80,6 +80,33 @@ class PnrPricingSelection(BaseModel):
     message: str | None = None
 
 
+class PnrPricingCoverageStatus(StrEnum):
+    EXACT = "exact"
+    UNKNOWN = "unknown"
+    INCOMPLETE = "incomplete"
+    CONFLICT = "conflict"
+
+
+class PnrPricingPassengerBinding(BaseModel):
+    name_number: str
+    passenger_type: str | None = None
+    candidate_record_numbers: list[str] = Field(default_factory=list)
+
+
+class PnrPricingCoverage(BaseModel):
+    status: PnrPricingCoverageStatus
+    passenger_count: int = Field(default=0, ge=0)
+    covered_passenger_count: int = Field(default=0, ge=0)
+    bindings: list[PnrPricingPassengerBinding] = Field(default_factory=list)
+    uncovered_name_numbers: list[str] = Field(default_factory=list)
+    duplicate_name_numbers: list[str] = Field(default_factory=list)
+    unknown_name_numbers: list[str] = Field(default_factory=list)
+    type_mismatch_name_numbers: list[str] = Field(default_factory=list)
+    quantity_mismatch_record_numbers: list[str] = Field(default_factory=list)
+    unassociated_record_numbers: list[str] = Field(default_factory=list)
+    message: str | None = None
+
+
 class PnrTicketing(BaseModel):
     ticket_type: str | None = None
     ticketing_text: str | None = None
@@ -161,6 +188,7 @@ class PnrAssessmentResult(BaseModel):
     assessment: PnrAssessment
     next_action: PnrNextAction
     pricing_selection: PnrPricingSelection
+    pricing_coverage: PnrPricingCoverage
 
 
 class PnrWorkspaceSnapshotRecord(BaseModel):
@@ -184,5 +212,6 @@ class PnrWorkspaceResponse(BaseModel):
     assessment: PnrAssessment | None = None
     next_action: PnrNextAction | None = None
     pricing_selection: PnrPricingSelection | None = None
+    pricing_coverage: PnrPricingCoverage | None = None
     read_error_code: str | None = None
     read_error_message: str | None = None

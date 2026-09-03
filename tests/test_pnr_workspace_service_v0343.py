@@ -24,6 +24,7 @@ from app.models.pnr_workspace import (
     PnrContact,
     PnrNextActionCode,
     PnrPassenger,
+    PnrPricingCoverageStatus,
     PnrPricingSelectionStatus,
     PnrSegment,
     PnrSnapshot,
@@ -299,6 +300,8 @@ def test_successful_sync_persists_and_assesses_real_pnr() -> None:
     )
     assert response.pricing_selection is not None
     assert response.pricing_selection.status == PnrPricingSelectionStatus.MISSING
+    assert response.pricing_coverage is not None
+    assert response.pricing_coverage.status == PnrPricingCoverageStatus.UNKNOWN
     assert response.read_error_code is None
 
 

@@ -176,6 +176,7 @@ class PnrWorkspaceService:
             assessment=assessment.assessment,
             next_action=assessment.next_action,
             pricing_selection=assessment.pricing_selection,
+            pricing_coverage=assessment.pricing_coverage,
             read_error_code=read_error_code,
             read_error_message=read_error_message,
         )

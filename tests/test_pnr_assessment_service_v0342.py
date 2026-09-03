@@ -21,6 +21,7 @@ from app.models.pnr_workspace import (
     PnrContact,
     PnrNextActionCode,
     PnrPassenger,
+    PnrPricingCoverageStatus,
     PnrPricingSelectionStatus,
     PnrPriceQuote,
     PnrSegment,
@@ -175,6 +176,7 @@ def _snapshot(
                     validating_carrier="AA",
                     passenger_type="ADT",
                     passenger_quantity=1,
+                    passenger_name_numbers=["01.01"],
                     total_amount=price,
                     total_currency="USD",
                 )
@@ -350,3 +352,22 @@ def test_only_non_active_pq_requires_pricing_review() -> None:
     assert _check(result, "PRICE_MATCH").status == PnrCheckStatus.UNKNOWN
     assert result.assessment.status == PnrWorkspaceStatus.NEEDS_ATTENTION
     assert result.next_action.code == PnrNextActionCode.REVIEW_PRICING
+
+def test_active_pq_without_name_association_blocks_ticketing() -> None:
+    snapshot = _snapshot()
+    snapshot.price_quotes[0].passenger_name_numbers = []
+    result = _result(snapshot)
+    assert result.pricing_coverage.status == PnrPricingCoverageStatus.UNKNOWN
+    assert _check(result, "PRICING_PASSENGER_COVERAGE").status == PnrCheckStatus.UNKNOWN
+    assert result.assessment.status == PnrWorkspaceStatus.NEEDS_ATTENTION
+    assert result.next_action.code == PnrNextActionCode.REVIEW_PRICING
+
+
+def test_active_pq_wrong_passenger_association_blocks_ticketing() -> None:
+    snapshot = _snapshot()
+    snapshot.price_quotes[0].passenger_name_numbers = ["09.09"]
+    result = _result(snapshot)
+    assert result.pricing_coverage.status == PnrPricingCoverageStatus.CONFLICT
+    assert _check(result, "PRICING_PASSENGER_COVERAGE").status == PnrCheckStatus.FAIL
+    assert result.next_action.code == PnrNextActionCode.REVIEW_PRICING
+
