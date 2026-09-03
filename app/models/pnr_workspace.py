@@ -182,6 +182,9 @@ class PnrFinalPreIssueGate(BaseModel):
 class PnrTicketing(BaseModel):
     ticket_type: str | None = None
     ticketing_text: str | None = None
+    arrangement_raw: str | None = None
+    arrangement_type: str | None = None
+    arrangement_rph: str | None = None
     advisory_present: bool = False
     advisory_code: str | None = None
     advisory_status: str | None = None

@@ -501,7 +501,12 @@
       "ticketingDeadline",
       ticketing.deadline_at || "No detectado"
     );
-    text("ticketingType", ticketing.ticket_type || "No informado");
+    text(
+      "ticketingType",
+      ticketing.arrangement_raw ||
+        ticketing.ticket_type ||
+        "No informado"
+    );
 
     const services = workspace?.snapshot?.special_services || [];
     const visibleServices = Array.from(
