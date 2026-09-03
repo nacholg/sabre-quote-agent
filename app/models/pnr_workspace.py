@@ -107,6 +107,29 @@ class PnrPricingCoverage(BaseModel):
     message: str | None = None
 
 
+class PnrTicketCandidateStatus(StrEnum):
+    READY = "ready"
+    BLOCKED = "blocked"
+
+
+class PnrTicketCandidatePassenger(BaseModel):
+    name_number: str
+    passenger_type: str
+    price_quote_record_number: str
+
+
+class PnrTicketCandidate(BaseModel):
+    status: PnrTicketCandidateStatus
+    confirmation_id: str
+    validating_carrier: str | None = None
+    currency: str | None = None
+    total_amount: Decimal | None = None
+    price_quote_record_numbers: list[str] = Field(default_factory=list)
+    passengers: list[PnrTicketCandidatePassenger] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    message: str | None = None
+
+
 class PnrTicketing(BaseModel):
     ticket_type: str | None = None
     ticketing_text: str | None = None
@@ -189,6 +212,7 @@ class PnrAssessmentResult(BaseModel):
     next_action: PnrNextAction
     pricing_selection: PnrPricingSelection
     pricing_coverage: PnrPricingCoverage
+    ticket_candidate: PnrTicketCandidate
 
 
 class PnrWorkspaceSnapshotRecord(BaseModel):
@@ -213,5 +237,6 @@ class PnrWorkspaceResponse(BaseModel):
     next_action: PnrNextAction | None = None
     pricing_selection: PnrPricingSelection | None = None
     pricing_coverage: PnrPricingCoverage | None = None
+    ticket_candidate: PnrTicketCandidate | None = None
     read_error_code: str | None = None
     read_error_message: str | None = None

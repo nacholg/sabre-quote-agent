@@ -22,10 +22,15 @@ from app.models.pnr_workspace import (
     PnrPricingSelection,
     PnrPricingSelectionStatus,
     PnrSnapshot,
+    PnrTicketCandidate,
+    PnrTicketCandidateStatus,
     PnrWorkspaceStatus,
 )
 from app.services.pnr_pricing_coverage_service import assess_pnr_pricing_coverage
 from app.services.pnr_pricing_selection_service import select_pnr_pricing
+from app.services.pnr_ticket_candidate_service import (
+    build_pnr_ticket_candidate,
+)
 
 
 _UNRESOLVED = {PnrCheckStatus.FAIL, PnrCheckStatus.UNKNOWN}
@@ -122,6 +127,12 @@ class PnrAssessmentService:
 
         pricing_selection = select_pnr_pricing(snapshot)
         pricing_coverage = assess_pnr_pricing_coverage(snapshot, pricing_selection)
+        ticket_candidate = build_pnr_ticket_candidate(
+            snapshot=snapshot,
+            fare=revision.snapshot.fare,
+            selection=pricing_selection,
+            coverage=pricing_coverage,
+        )
         checks = [
             *self._segment_checks(revision.snapshot.segments, snapshot),
             *self._passenger_checks(passengers, snapshot),
@@ -131,6 +142,7 @@ class PnrAssessmentService:
                 snapshot,
                 pricing_selection,
                 pricing_coverage,
+                ticket_candidate,
             ),
             *self._ticketing_checks(snapshot),
         ]
@@ -163,6 +175,7 @@ class PnrAssessmentService:
             next_action=self._next_action(checks),
             pricing_selection=pricing_selection,
             pricing_coverage=pricing_coverage,
+            ticket_candidate=ticket_candidate,
         )
 
     @staticmethod
@@ -385,6 +398,7 @@ class PnrAssessmentService:
         snapshot: PnrSnapshot,
         selection: PnrPricingSelection,
         coverage: PnrPricingCoverage,
+        ticket_candidate: PnrTicketCandidate,
     ):
         quotes = snapshot.price_quotes
         present = bool(quotes)
@@ -542,6 +556,31 @@ class PnrAssessmentService:
                 actual=",".join(sorted(carriers)) or "-",
             ),
             _check(
+                "TICKET_CANDIDATE_READY",
+                "Ticket candidate inequívoco",
+                (
+                    PnrCheckStatus.PASS
+                    if ticket_candidate.status
+                    == PnrTicketCandidateStatus.READY
+                    else (
+                        PnrCheckStatus.FAIL
+                        if (
+                            selected
+                            and coverage.status
+                            == PnrPricingCoverageStatus.EXACT
+                        )
+                        else PnrCheckStatus.UNKNOWN
+                    )
+                ),
+                blocking=(
+                    selected
+                    and coverage.status == PnrPricingCoverageStatus.EXACT
+                ),
+                expected="ready",
+                actual=ticket_candidate.status.value,
+                message=ticket_candidate.message,
+            ),
+            _check(
                 "BRAND_MATCH",
                 "Brand verificable",
                 PnrCheckStatus.UNKNOWN,
@@ -671,6 +710,11 @@ class PnrAssessmentService:
             code, label = (
                 PnrNextActionCode.REVIEW_PRICING,
                 "Revisar pricing almacenado.",
+            )
+        elif unresolved("TICKET_CANDIDATE_READY"):
+            code, label = (
+                PnrNextActionCode.REVIEW_PRICING,
+                "Revisar datos necesarios para el ticket candidate.",
             )
         else:
             code, label = (
