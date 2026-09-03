@@ -27,6 +27,9 @@ from app.services.pnr_assessment_service import PnrAssessmentService
 from app.services.pnr_pre_issue_readiness_service import (
     build_pnr_pre_issue_readiness,
 )
+from app.services.pnr_ticketing_constraint_service import (
+    interpret_pnr_ticketing_constraint,
+)
 from app.services.pnr_workspace_snapshot_repository import (
     PnrWorkspaceSnapshotRepository,
 )
@@ -174,6 +177,9 @@ class PnrWorkspaceService:
             assessment=assessment.assessment,
             ticket_candidate=assessment.ticket_candidate,
         )
+        ticketing_constraint = interpret_pnr_ticketing_constraint(
+            record.snapshot.ticketing
+        )
         return PnrWorkspaceResponse(
             booking_id=booking.booking_id,
             confirmation_id=record.confirmation_id,
@@ -189,6 +195,7 @@ class PnrWorkspaceService:
             pricing_coverage=assessment.pricing_coverage,
             ticket_candidate=assessment.ticket_candidate,
             pre_issue_readiness=pre_issue_readiness,
+            ticketing_constraint=ticketing_constraint,
             read_error_code=read_error_code,
             read_error_message=read_error_message,
         )

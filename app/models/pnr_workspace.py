@@ -144,6 +144,25 @@ class PnrPreIssueReadiness(BaseModel):
     message: str | None = None
 
 
+class PnrTicketingConstraintStatus(StrEnum):
+    STRUCTURED_DEADLINE = "structured_deadline"
+    ADVISORY_WITHOUT_DEADLINE = "advisory_without_deadline"
+    NO_STRUCTURED_CONSTRAINT = "no_structured_constraint"
+    UNVERIFIED_DEADLINE = "unverified_deadline"
+
+
+class PnrTicketingConstraint(BaseModel):
+    status: PnrTicketingConstraintStatus
+    advisory_present: bool = False
+    advisory_code: str | None = None
+    advisory_status: str | None = None
+    advisory_airline_code: str | None = None
+    deadline_at: str | None = None
+    deadline_interpretable: bool = False
+    requires_deadline_lookup: bool = True
+    message: str | None = None
+
+
 class PnrTicketing(BaseModel):
     ticket_type: str | None = None
     ticketing_text: str | None = None
@@ -253,5 +272,6 @@ class PnrWorkspaceResponse(BaseModel):
     pricing_coverage: PnrPricingCoverage | None = None
     ticket_candidate: PnrTicketCandidate | None = None
     pre_issue_readiness: PnrPreIssueReadiness | None = None
+    ticketing_constraint: PnrTicketingConstraint | None = None
     read_error_code: str | None = None
     read_error_message: str | None = None
