@@ -24,6 +24,7 @@ from app.models.pnr_workspace import (
     PnrContact,
     PnrNextActionCode,
     PnrPassenger,
+    PnrPricingSelectionStatus,
     PnrSegment,
     PnrSnapshot,
     PnrWorkspaceSnapshotRecord,
@@ -296,6 +297,8 @@ def test_successful_sync_persists_and_assesses_real_pnr() -> None:
     assert response.next_action.code == (
         PnrNextActionCode.STORE_OR_VERIFY_PRICING
     )
+    assert response.pricing_selection is not None
+    assert response.pricing_selection.status == PnrPricingSelectionStatus.MISSING
     assert response.read_error_code is None
 
 

@@ -64,6 +64,22 @@ class PnrPriceQuote(BaseModel):
     segment_booking_classes: list[str] = Field(default_factory=list)
 
 
+class PnrPricingSelectionStatus(StrEnum):
+    SELECTED = "selected"
+    MISSING = "missing"
+    NO_ACTIVE = "no_active"
+
+
+class PnrPricingSelection(BaseModel):
+    status: PnrPricingSelectionStatus
+    candidates: list[PnrPriceQuote] = Field(default_factory=list)
+    total_quote_count: int = Field(default=0, ge=0)
+    candidate_quote_count: int = Field(default=0, ge=0)
+    excluded_quote_count: int = Field(default=0, ge=0)
+    candidate_record_numbers: list[str] = Field(default_factory=list)
+    message: str | None = None
+
+
 class PnrTicketing(BaseModel):
     ticket_type: str | None = None
     ticketing_text: str | None = None
@@ -144,6 +160,7 @@ class PnrNextAction(BaseModel):
 class PnrAssessmentResult(BaseModel):
     assessment: PnrAssessment
     next_action: PnrNextAction
+    pricing_selection: PnrPricingSelection
 
 
 class PnrWorkspaceSnapshotRecord(BaseModel):
@@ -166,5 +183,6 @@ class PnrWorkspaceResponse(BaseModel):
     snapshot: PnrSnapshot | None = None
     assessment: PnrAssessment | None = None
     next_action: PnrNextAction | None = None
+    pricing_selection: PnrPricingSelection | None = None
     read_error_code: str | None = None
     read_error_message: str | None = None

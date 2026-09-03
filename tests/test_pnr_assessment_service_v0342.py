@@ -21,6 +21,7 @@ from app.models.pnr_workspace import (
     PnrContact,
     PnrNextActionCode,
     PnrPassenger,
+    PnrPricingSelectionStatus,
     PnrPriceQuote,
     PnrSegment,
     PnrSnapshot,
@@ -170,6 +171,7 @@ def _snapshot(
             [
                 PnrPriceQuote(
                     record_number="1",
+                    status="ACTIVE",
                     validating_carrier="AA",
                     passenger_type="ADT",
                     passenger_quantity=1,
@@ -307,3 +309,44 @@ def test_known_passenger_type_mismatch_requires_passenger_review() -> None:
     )
     assert result.assessment.status == PnrWorkspaceStatus.NEEDS_ATTENTION
     assert result.next_action.code == PnrNextActionCode.REVIEW_PASSENGERS
+
+
+def test_non_active_pq_is_excluded_from_pricing_comparison() -> None:
+    snapshot = _snapshot()
+    snapshot.price_quotes.append(
+        PnrPriceQuote(
+            record_number="2",
+            status="HISTORICAL",
+            validating_carrier="AA",
+            passenger_type="ADT",
+            passenger_quantity=1,
+            total_amount=Decimal("999.99"),
+            total_currency="USD",
+        )
+    )
+
+    result = _result(snapshot)
+
+    assert result.pricing_selection.status == PnrPricingSelectionStatus.SELECTED
+    assert result.pricing_selection.candidate_record_numbers == ["1"]
+    assert result.pricing_selection.total_quote_count == 2
+    assert result.pricing_selection.candidate_quote_count == 1
+    assert result.pricing_selection.excluded_quote_count == 1
+    assert _check(result, "ACTIVE_PRICING_SELECTED").status == PnrCheckStatus.PASS
+    assert _check(result, "PRICE_MATCH").status == PnrCheckStatus.PASS
+    assert result.assessment.status == PnrWorkspaceStatus.READY_FOR_TICKETING
+
+
+def test_only_non_active_pq_requires_pricing_review() -> None:
+    snapshot = _snapshot()
+    snapshot.price_quotes[0].status = "HISTORICAL"
+
+    result = _result(snapshot)
+
+    assert result.pricing_selection.status == PnrPricingSelectionStatus.NO_ACTIVE
+    assert _check(result, "PRICING_PRESENT").status == PnrCheckStatus.PASS
+    assert _check(result, "ACTIVE_PRICING_SELECTED").status == PnrCheckStatus.FAIL
+    assert _check(result, "CURRENCY_MATCH").status == PnrCheckStatus.UNKNOWN
+    assert _check(result, "PRICE_MATCH").status == PnrCheckStatus.UNKNOWN
+    assert result.assessment.status == PnrWorkspaceStatus.NEEDS_ATTENTION
+    assert result.next_action.code == PnrNextActionCode.REVIEW_PRICING

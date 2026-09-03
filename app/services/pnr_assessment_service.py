@@ -17,9 +17,12 @@ from app.models.pnr_workspace import (
     PnrCheckStatus,
     PnrNextAction,
     PnrNextActionCode,
+    PnrPricingSelection,
+    PnrPricingSelectionStatus,
     PnrSnapshot,
     PnrWorkspaceStatus,
 )
+from app.services.pnr_pricing_selection_service import select_pnr_pricing
 
 
 _UNRESOLVED = {PnrCheckStatus.FAIL, PnrCheckStatus.UNKNOWN}
@@ -114,11 +117,16 @@ class PnrAssessmentService:
         if revision is None:
             raise ValueError("Booking sin oferta aceptada para assessment.")
 
+        pricing_selection = select_pnr_pricing(snapshot)
         checks = [
             *self._segment_checks(revision.snapshot.segments, snapshot),
             *self._passenger_checks(passengers, snapshot),
             *self._contact_checks(contact, snapshot),
-            *self._pricing_checks(revision.snapshot.fare, snapshot),
+            *self._pricing_checks(
+                revision.snapshot.fare,
+                snapshot,
+                pricing_selection,
+            ),
             *self._ticketing_checks(snapshot),
         ]
         blocking = [
@@ -148,6 +156,7 @@ class PnrAssessmentService:
         return PnrAssessmentResult(
             assessment=assessment,
             next_action=self._next_action(checks),
+            pricing_selection=pricing_selection,
         )
 
     @staticmethod
@@ -365,19 +374,44 @@ class PnrAssessmentService:
         ]
 
     @staticmethod
-    def _pricing_checks(fare, snapshot: PnrSnapshot):
+    def _pricing_checks(
+        fare,
+        snapshot: PnrSnapshot,
+        selection: PnrPricingSelection,
+    ):
         quotes = snapshot.price_quotes
         present = bool(quotes)
+        candidates = selection.candidates
+        selected = (
+            selection.status == PnrPricingSelectionStatus.SELECTED
+            and bool(candidates)
+        )
+
+        if not present:
+            candidate_status = PnrCheckStatus.UNKNOWN
+            candidate_blocking = False
+        elif selected:
+            candidate_status = PnrCheckStatus.PASS
+            candidate_blocking = True
+        else:
+            candidate_status = PnrCheckStatus.FAIL
+            candidate_blocking = True
+
         expected_currency = _upper(fare.currency)
+        currency_values = [
+            _upper(item.total_currency)
+            for item in candidates
+        ]
         currencies = {
             value
-            for value in (
-                _upper(item.total_currency)
-                for item in quotes
-            )
+            for value in currency_values
             if value
         }
-        if not present or not currencies:
+        if (
+            not selected
+            or expected_currency is None
+            or any(value is None for value in currency_values)
+        ):
             currency_status = PnrCheckStatus.UNKNOWN
         else:
             currency_status = (
@@ -386,20 +420,19 @@ class PnrAssessmentService:
                 else PnrCheckStatus.FAIL
             )
 
-        totals = [
-            item.total_amount
-            for item in quotes
-            if item.total_amount is not None
-        ]
+        totals = [item.total_amount for item in candidates]
         total: Decimal | None = None
         if (
-            not present
+            not selected
             or fare.total_price is None
-            or len(totals) != len(quotes)
+            or any(value is None for value in totals)
         ):
             price_status = PnrCheckStatus.UNKNOWN
         else:
-            total = sum(totals, Decimal("0"))
+            total = sum(
+                (value for value in totals if value is not None),
+                Decimal("0"),
+            )
             price_status = (
                 PnrCheckStatus.PASS
                 if total == fare.total_price
@@ -407,20 +440,20 @@ class PnrAssessmentService:
             )
 
         expected_carrier = _upper(fare.validating_carrier)
-        carriers = {
-            value
-            for value in (
-                _upper(item.validating_carrier)
-                for item in quotes
-            )
-            if value
-        }
+        carrier_values = [
+            _upper(item.validating_carrier)
+            for item in candidates
+        ]
+        carriers = {value for value in carrier_values if value}
         if expected_carrier is None:
             carrier_status = PnrCheckStatus.UNKNOWN
             carrier_blocking = False
-        elif not present or not carriers:
+        elif not selected:
             carrier_status = PnrCheckStatus.UNKNOWN
-            carrier_blocking = present
+            carrier_blocking = False
+        elif any(value is None for value in carrier_values):
+            carrier_status = PnrCheckStatus.UNKNOWN
+            carrier_blocking = True
         else:
             carrier_status = (
                 PnrCheckStatus.PASS
@@ -429,29 +462,42 @@ class PnrAssessmentService:
             )
             carrier_blocking = True
 
+        if selected:
+            active_actual = (
+                f"{selection.candidate_quote_count} ACTIVE / "
+                f"{selection.total_quote_count} total"
+            )
+        elif present:
+            active_actual = (
+                f"0 ACTIVE / {selection.total_quote_count} total"
+            )
+        else:
+            active_actual = "sin PQ"
+
         brand = _upper(fare.brand_code) or fare.brand_name
         return [
             _check(
                 "PRICING_PRESENT",
                 "Tarifa almacenada",
-                (
-                    PnrCheckStatus.PASS
-                    if present
-                    else PnrCheckStatus.FAIL
-                ),
+                PnrCheckStatus.PASS if present else PnrCheckStatus.FAIL,
                 blocking=True,
                 expected="PQ presente",
-                actual=(
-                    f"{len(quotes)} PQ"
-                    if present
-                    else "sin PQ"
-                ),
+                actual=f"{len(quotes)} PQ" if present else "sin PQ",
+            ),
+            _check(
+                "ACTIVE_PRICING_SELECTED",
+                "Pricing activo identificado",
+                candidate_status,
+                blocking=candidate_blocking,
+                expected="PQ status ACTIVE",
+                actual=active_actual,
+                message=selection.message,
             ),
             _check(
                 "CURRENCY_MATCH",
                 "Moneda coincide",
                 currency_status,
-                blocking=present,
+                blocking=selected,
                 expected=expected_currency or "-",
                 actual=",".join(sorted(currencies)) or "-",
             ),
@@ -459,12 +505,8 @@ class PnrAssessmentService:
                 "PRICE_MATCH",
                 "Total coincide",
                 price_status,
-                blocking=present,
-                expected=(
-                    str(fare.total_price)
-                    if fare.total_price is not None
-                    else "-"
-                ),
+                blocking=selected,
+                expected=(str(fare.total_price) if fare.total_price is not None else "-"),
                 actual=str(total) if total is not None else "-",
             ),
             _check(
@@ -583,6 +625,11 @@ class PnrAssessmentService:
             code, label = (
                 PnrNextActionCode.STORE_OR_VERIFY_PRICING,
                 "Guardar/verificar tarifa en Sabre.",
+            )
+        elif unresolved("ACTIVE_PRICING_SELECTED"):
+            code, label = (
+                PnrNextActionCode.REVIEW_PRICING,
+                "Revisar cuál pricing ACTIVE corresponde emitir.",
             )
         elif any(
             unresolved(name)
