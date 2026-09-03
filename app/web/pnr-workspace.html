@@ -201,6 +201,93 @@
               <div id="assessmentChecks" class="assessment-list"></div>
             </details>
           </article>
+
+          <article
+            id="preIssueReview"
+            class="panel workspace-panel pre-issue-panel"
+            aria-labelledby="preIssueTitle"
+          >
+            <div class="section-head">
+              <div>
+                <span class="eyebrow">Pre-Issue Review</span>
+                <h2 id="preIssueTitle">Revisión previa a emisión</h2>
+              </div>
+              <span
+                id="preIssueBadge"
+                class="workspace-state-badge loading"
+              >
+                Verificando
+              </span>
+            </div>
+
+            <p id="preIssueSummary" class="pre-issue-summary">
+              Verificando si la lectura actual del PNR está lista para revisión pre-emisión.
+            </p>
+
+            <div
+              id="preIssueChecks"
+              class="pre-issue-checks"
+              aria-label="Controles previos a emisión"
+            ></div>
+
+            <section class="pre-issue-candidate" aria-labelledby="ticketCandidateTitle">
+              <div class="pre-issue-candidate-head">
+                <div>
+                  <span class="eyebrow">Ticket Candidate</span>
+                  <h3 id="ticketCandidateTitle">Qué se emitiría</h3>
+                </div>
+                <span id="ticketCandidateBadge" class="workspace-count-badge">
+                  —
+                </span>
+              </div>
+
+              <dl class="pre-issue-kv">
+                <div>
+                  <dt>PNR</dt>
+                  <dd id="candidateLocator">—</dd>
+                </div>
+                <div>
+                  <dt>PQ</dt>
+                  <dd id="candidatePqRecords">—</dd>
+                </div>
+                <div>
+                  <dt>Validating carrier</dt>
+                  <dd id="candidateCarrier">—</dd>
+                </div>
+                <div>
+                  <dt>Total</dt>
+                  <dd id="candidateTotal">—</dd>
+                </div>
+              </dl>
+
+              <div>
+                <h3>Pasajeros incluidos</h3>
+                <div
+                  id="ticketCandidatePassengers"
+                  class="pre-issue-passengers"
+                ></div>
+              </div>
+            </section>
+
+            <div id="preIssueBlockers" class="pre-issue-blockers hidden"></div>
+
+            <div class="pre-issue-action">
+              <button
+                id="issueTicketButton"
+                class="issue-ticket-disabled"
+                type="button"
+                disabled
+                aria-disabled="true"
+                title="La emisión no está habilitada en esta versión"
+              >
+                Emitir ticket
+              </button>
+              <small>
+                Emisión no habilitada en esta versión. Este panel es sólo de revisión.
+              </small>
+            </div>
+          </article>
+
         </section>
 
         <aside class="workspace-side">

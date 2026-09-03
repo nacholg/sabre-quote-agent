@@ -420,7 +420,7 @@
   function nextActionDescription(code) {
     return {
       issue_ticket:
-        "Los controles bloqueantes están correctos. La emisión sigue siendo una acción operativa separada.",
+        "Los controles bloqueantes están correctos y existe un ticket candidate inequívoco. La emisión permanece deshabilitada.",
       store_or_verify_pricing:
         "El PNR no tiene una tarifa almacenada verificable. Primero hay que guardar o revisar el pricing.",
       review_itinerary:
@@ -446,7 +446,12 @@
     }
 
     const next = workspace?.next_action;
-    text("nextActionTitle", next?.label || "Revisar reserva");
+    text(
+      "nextActionTitle",
+      next?.code === "issue_ticket"
+        ? "Lista para revisión pre-emisión"
+        : (next?.label || "Revisar reserva")
+    );
     text(
       "nextActionDescription",
       nextActionDescription(next?.code)
@@ -526,6 +531,192 @@
       : `<div class="empty-note">No hay SSR adicionales relevantes.</div>`;
   }
 
+
+  function combinedCheckStatus(codes) {
+    const checks = codes.map(checkByCode).filter(Boolean);
+    if (checks.length !== codes.length) return "unknown";
+    if (checks.some(check => check.status === "fail")) return "fail";
+    if (checks.every(check => check.status === "pass")) return "pass";
+    return "unknown";
+  }
+
+  function preIssueItem(label, status, detail) {
+    const symbol = status === "pass" ? "✓" : status === "fail" ? "!" : "·";
+    return `
+      <article class="pre-issue-check ${esc(status)}">
+        <span class="pre-issue-check-icon" aria-hidden="true">
+          ${esc(symbol)}
+        </span>
+        <div>
+          <strong>${esc(label)}</strong>
+          <small>${esc(detail)}</small>
+        </div>
+      </article>
+    `;
+  }
+
+  function candidatePassengerName(candidatePassenger, index) {
+    const nameNumber = String(candidatePassenger?.name_number || "");
+    const passenger = (workspace?.snapshot?.passengers || []).find(
+      item => String(item.name_number || "") === nameNumber
+    );
+    return passenger
+      ? passengerName(passenger, index)
+      : `Passenger ${nameNumber || index + 1}`;
+  }
+
+  function renderPreIssueReview() {
+    const readiness = workspace?.pre_issue_readiness || null;
+    const candidate = workspace?.ticket_candidate || null;
+
+    const ready = Boolean(
+      readiness?.status === "ready" &&
+      readiness?.fresh_remote_read === true &&
+      workspace?.stale !== true &&
+      workspace?.status === "ready_for_ticketing" &&
+      candidate?.status === "ready"
+    );
+
+    const badge = $("preIssueBadge");
+    if (badge) {
+      badge.classList.remove("ready", "attention", "error", "loading");
+      badge.classList.add(ready ? "ready" : "attention");
+      badge.textContent = ready
+        ? "READY FOR PRE-ISSUE"
+        : "REVISIÓN REQUERIDA";
+    }
+
+    text(
+      "preIssueSummary",
+      ready
+        ? "La lectura actual de Sabre cumple los gates para revisión pre-emisión."
+        : (
+            readiness?.message ||
+            "El PNR todavía no cumple todos los gates de revisión pre-emisión."
+          )
+    );
+
+    const freshStatus = (
+      readiness?.fresh_remote_read === true &&
+      workspace?.stale !== true &&
+      workspace?.status !== "read_error"
+    ) ? "pass" : "fail";
+
+    const checks = [
+      [
+        "Lectura Sabre actual",
+        freshStatus,
+        freshStatus === "pass"
+          ? `Verificada ${fmtRetrievedAt(readiness?.retrieved_at || workspace?.retrieved_at)}`
+          : "Se requiere una nueva lectura remota exitosa.",
+      ],
+      [
+        "Itinerario confirmado",
+        combinedCheckStatus(["SEGMENTS_MATCH", "SEGMENTS_CONFIRMED"]),
+        "Segmentos exactos contra el Booking y estado HK.",
+      ],
+      [
+        "Pasajeros y pricing",
+        combinedCheckStatus([
+          "PASSENGER_COUNT_MATCH",
+          "PASSENGER_TYPES_MATCH",
+          "PRICING_PASSENGER_COVERAGE",
+        ]),
+        "Todos los pasajeros deben quedar cubiertos exactamente una vez.",
+      ],
+      [
+        "PQ ACTIVE",
+        checkByCode("ACTIVE_PRICING_SELECTED")?.status || "unknown",
+        "Sólo pricing con status Sabre ACTIVE entra al candidato.",
+      ],
+      [
+        "Tarifa y carrier",
+        combinedCheckStatus([
+          "CURRENCY_MATCH",
+          "PRICE_MATCH",
+          "VALIDATING_CARRIER_MATCH",
+        ]),
+        "Moneda, total y validating carrier contra el Booking congelado.",
+      ],
+      [
+        "Ticket Candidate",
+        (
+          candidate?.status === "ready" &&
+          checkByCode("TICKET_CANDIDATE_READY")?.status === "pass"
+        ) ? "pass" : (
+          candidate?.status === "blocked" ? "fail" : "unknown"
+        ),
+        candidate?.status === "ready"
+          ? "Conjunto de PQ y pasajeros inequívoco."
+          : "No hay un ticket candidate inequívoco.",
+      ],
+    ];
+
+    $("preIssueChecks").innerHTML = checks
+      .map(([label, status, detail]) => preIssueItem(label, status, detail))
+      .join("");
+
+    text(
+      "ticketCandidateBadge",
+      candidate?.status === "ready" ? "READY" : "BLOCKED"
+    );
+    text("candidateLocator", candidate?.confirmation_id || "—");
+    text(
+      "candidatePqRecords",
+      (candidate?.price_quote_record_numbers || []).length
+        ? candidate.price_quote_record_numbers.join(", ")
+        : "—"
+    );
+    text("candidateCarrier", candidate?.validating_carrier || "—");
+    text(
+      "candidateTotal",
+      candidate?.total_amount != null
+        ? money(candidate.total_amount, candidate.currency)
+        : "—"
+    );
+
+    const candidatePassengers = candidate?.passengers || [];
+    $("ticketCandidatePassengers").innerHTML = candidatePassengers.length
+      ? candidatePassengers.map((passenger, index) => `
+          <div class="pre-issue-passenger">
+            <div>
+              <strong>${esc(candidatePassengerName(passenger, index))}</strong>
+              <small>
+                ${esc(passenger.name_number || "—")}
+                · ${esc(passenger.passenger_type || "—")}
+              </small>
+            </div>
+            <span class="meta-chip">
+              PQ ${esc(passenger.price_quote_record_number || "—")}
+            </span>
+          </div>
+        `).join("")
+      : `<div class="empty-note">No hay pasajeros en el ticket candidate.</div>`;
+
+    const blockers = Array.from(new Set([
+      ...(readiness?.blockers || []),
+      ...(candidate?.blockers || []),
+    ]));
+    if (blockers.length) {
+      $("preIssueBlockers").innerHTML = `
+        <strong>Bloqueos detectados</strong>
+        <ul>
+          ${blockers.map(item => `<li>${esc(item)}</li>`).join("")}
+        </ul>
+      `;
+      show("preIssueBlockers", true);
+    } else {
+      $("preIssueBlockers").innerHTML = "";
+      show("preIssueBlockers", false);
+    }
+
+    const issueButton = $("issueTicketButton");
+    if (issueButton) {
+      issueButton.disabled = true;
+      issueButton.setAttribute("aria-disabled", "true");
+    }
+  }
+
   function renderTechnical() {
     text("technicalBookingId", workspace?.booking_id || bookingId);
     text("technicalLocator", workspace?.confirmation_id || "—");
@@ -569,6 +760,7 @@
     renderChecks();
     renderNextAction();
     renderTicketing();
+    renderPreIssueReview();
     renderTechnical();
   }
 
