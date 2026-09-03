@@ -6,6 +6,14 @@
   );
   const $ = id => document.getElementById(id);
 
+  function esc(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
+  }
+
   let latestReview = null;
   let clientRequestId = null;
   let writeUncertain = false;
@@ -150,7 +158,7 @@
             <span class="eyebrow">Control final</span>
             <h3>Revalidación automática + Create PNR</h3>
           </div>
-          <strong>${bookingStatusLabel(review.status)}</strong>
+          <strong>${esc(bookingStatusLabel(review.status))}</strong>
         </div>
 
         <p>
@@ -210,9 +218,9 @@
         <div class="revalidation-result-head">
           <div>
             <span class="eyebrow">Create PNR</span>
-            <h3>${labels[status] || status}</h3>
+            <h3>${esc(labels[status] || status)}</h3>
           </div>
-          <strong>${attempt.confirmation_id || "—"}</strong>
+          <strong>${esc(attempt.confirmation_id || "—")}</strong>
         </div>
 
         ${
@@ -220,7 +228,7 @@
             ? `
               <div class="message ok">
                 PNR creado correctamente.
-                Localizador Sabre: ${attempt.confirmation_id}
+                Localizador Sabre: ${esc(attempt.confirmation_id)}
               </div>
             `
             : ""
@@ -239,7 +247,7 @@
 
         ${
           attempt.error_message
-            ? `<div class="revalidation-error-detail">${attempt.error_message}</div>`
+            ? `<div class="revalidation-error-detail">${esc(attempt.error_message)}</div>`
             : ""
         }
       </section>
@@ -282,15 +290,15 @@
 
       const rows = changes.map(change => `
         <div class="revalidation-change-row">
-          <strong>${String(change.field || "Cambio")}</strong>
+          <strong>${esc(change.field || "Cambio")}</strong>
           <div class="revalidation-comparison">
             <span>
               <small>Antes</small>
-              ${String(change.before ?? "—")}
+              ${esc(change.before ?? "—")}
             </span>
             <span>
               <small>Ahora</small>
-              ${String(change.after ?? "—")}
+              ${esc(change.after ?? "—")}
             </span>
           </div>
         </div>
@@ -303,7 +311,7 @@
               <span class="eyebrow">Create PNR detenido</span>
               <h3>La selección exacta cambió</h3>
             </div>
-            <strong>${data.revalidation_status}</strong>
+            <strong>${esc(data.revalidation_status)}</strong>
           </div>
           <p>
             Create Booking no fue enviado. Revisá las diferencias antes
