@@ -80,7 +80,7 @@
 
   function stateLabel(status) {
     return {
-      ready_for_ticketing: "Lista para emitir",
+      ready_for_ticketing: "PNR verificado",
       needs_attention: "Requiere atención",
       read_error: "Verificación pendiente",
       verified: "Verificada",
@@ -446,15 +446,28 @@
     }
 
     const next = workspace?.next_action;
+    const finalGateBlocked = (
+      next?.code === "issue_ticket" &&
+      workspace?.final_pre_issue_gate?.status === "blocked"
+    );
     text(
       "nextActionTitle",
-      next?.code === "issue_ticket"
-        ? "Lista para revisión pre-emisión"
-        : (next?.label || "Revisar reserva")
+      finalGateBlocked
+        ? "Revisión de ticketing requerida"
+        : (
+            next?.code === "issue_ticket"
+              ? "Lista para revisión pre-emisión"
+              : (next?.label || "Revisar reserva")
+          )
     );
     text(
       "nextActionDescription",
-      nextActionDescription(next?.code)
+      finalGateBlocked
+        ? (
+            workspace?.final_pre_issue_gate?.message ||
+            "Los controles finales de ticketing requieren revisión."
+          )
+        : nextActionDescription(next?.code)
     );
 
     const blocking = (workspace?.assessment?.checks || []).filter(
@@ -568,14 +581,10 @@
   function renderPreIssueReview() {
     const readiness = workspace?.pre_issue_readiness || null;
     const candidate = workspace?.ticket_candidate || null;
+    const constraint = workspace?.ticketing_constraint || null;
+    const finalGate = workspace?.final_pre_issue_gate || null;
 
-    const ready = Boolean(
-      readiness?.status === "ready" &&
-      readiness?.fresh_remote_read === true &&
-      workspace?.stale !== true &&
-      workspace?.status === "ready_for_ticketing" &&
-      candidate?.status === "ready"
-    );
+    const ready = finalGate?.status === "ready";
 
     const badge = $("preIssueBadge");
     if (badge) {
@@ -583,16 +592,20 @@
       badge.classList.add(ready ? "ready" : "attention");
       badge.textContent = ready
         ? "READY FOR PRE-ISSUE"
-        : "REVISIÓN REQUERIDA";
+        : "BLOCKED";
     }
 
     text(
       "preIssueSummary",
       ready
-        ? "La lectura actual de Sabre cumple los gates para revisión pre-emisión."
+        ? (
+            finalGate?.message ||
+            "Todos los gates read-only están completos."
+          )
         : (
+            finalGate?.message ||
             readiness?.message ||
-            "El PNR todavía no cumple todos los gates de revisión pre-emisión."
+            "El PNR todavía no cumple todos los gates finales."
           )
     );
 
@@ -601,6 +614,38 @@
       workspace?.stale !== true &&
       workspace?.status !== "read_error"
     ) ? "pass" : "fail";
+
+    const finalBlockers = finalGate?.blockers || [];
+    const deadlineStatus = ready
+      ? "pass"
+      : (
+          finalBlockers.some(item => [
+            "TICKETING_DEADLINE_UNRESOLVED",
+            "TICKETING_DEADLINE_EXPIRED",
+            "TICKETING_DEADLINE_TIMEZONE_UNKNOWN",
+            "TICKETING_CONSTRAINT_UNAVAILABLE",
+          ].includes(item))
+            ? "fail"
+            : "unknown"
+        );
+
+    let deadlineDetail = "Restricción de ticketing no disponible.";
+    if (constraint?.status === "structured_deadline") {
+      deadlineDetail = constraint?.deadline_at
+        ? `Deadline estructurado: ${constraint.deadline_at}`
+        : "Deadline estructurado sin valor utilizable.";
+    } else if (constraint?.status === "advisory_without_deadline") {
+      const advisory = [
+        constraint?.advisory_airline_code,
+        constraint?.advisory_code,
+        constraint?.advisory_status,
+      ].filter(Boolean).join(":");
+      deadlineDetail = `${advisory || "ADTK"} sin deadline estructurado; requiere verificación.`;
+    } else if (constraint?.status === "no_structured_constraint") {
+      deadlineDetail = "No hay deadline estructurado; esto no equivale a ausencia de vencimiento.";
+    } else if (constraint?.status === "unverified_deadline") {
+      deadlineDetail = "El deadline recibido no puede interpretarse con seguridad.";
+    }
 
     const checks = [
       [
@@ -637,6 +682,11 @@
           "VALIDATING_CARRIER_MATCH",
         ]),
         "Moneda, total y validating carrier contra el Booking congelado.",
+      ],
+      [
+        "Ticketing deadline",
+        deadlineStatus,
+        deadlineDetail,
       ],
       [
         "Ticket Candidate",
@@ -694,6 +744,7 @@
       : `<div class="empty-note">No hay pasajeros en el ticket candidate.</div>`;
 
     const blockers = Array.from(new Set([
+      ...(finalGate?.blockers || []),
       ...(readiness?.blockers || []),
       ...(candidate?.blockers || []),
     ]));

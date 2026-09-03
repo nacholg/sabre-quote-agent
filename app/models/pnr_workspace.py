@@ -163,6 +163,22 @@ class PnrTicketingConstraint(BaseModel):
     message: str | None = None
 
 
+class PnrFinalPreIssueGateStatus(StrEnum):
+    READY = "ready"
+    BLOCKED = "blocked"
+
+
+class PnrFinalPreIssueGate(BaseModel):
+    status: PnrFinalPreIssueGateStatus
+    confirmation_id: str
+    evaluated_at: str
+    ticketing_constraint_status: PnrTicketingConstraintStatus | None = None
+    deadline_at: str | None = None
+    deadline_expired: bool | None = None
+    blockers: list[str] = Field(default_factory=list)
+    message: str | None = None
+
+
 class PnrTicketing(BaseModel):
     ticket_type: str | None = None
     ticketing_text: str | None = None
@@ -273,5 +289,6 @@ class PnrWorkspaceResponse(BaseModel):
     ticket_candidate: PnrTicketCandidate | None = None
     pre_issue_readiness: PnrPreIssueReadiness | None = None
     ticketing_constraint: PnrTicketingConstraint | None = None
+    final_pre_issue_gate: PnrFinalPreIssueGate | None = None
     read_error_code: str | None = None
     read_error_message: str | None = None

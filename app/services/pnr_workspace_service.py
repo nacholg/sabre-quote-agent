@@ -27,6 +27,9 @@ from app.services.pnr_assessment_service import PnrAssessmentService
 from app.services.pnr_pre_issue_readiness_service import (
     build_pnr_pre_issue_readiness,
 )
+from app.services.pnr_final_pre_issue_gate_service import (
+    build_pnr_final_pre_issue_gate,
+)
 from app.services.pnr_ticketing_constraint_service import (
     interpret_pnr_ticketing_constraint,
 )
@@ -180,6 +183,11 @@ class PnrWorkspaceService:
         ticketing_constraint = interpret_pnr_ticketing_constraint(
             record.snapshot.ticketing
         )
+        final_pre_issue_gate = build_pnr_final_pre_issue_gate(
+            confirmation_id=record.confirmation_id,
+            pre_issue_readiness=pre_issue_readiness,
+            ticketing_constraint=ticketing_constraint,
+        )
         return PnrWorkspaceResponse(
             booking_id=booking.booking_id,
             confirmation_id=record.confirmation_id,
@@ -196,6 +204,7 @@ class PnrWorkspaceService:
             ticket_candidate=assessment.ticket_candidate,
             pre_issue_readiness=pre_issue_readiness,
             ticketing_constraint=ticketing_constraint,
+            final_pre_issue_gate=final_pre_issue_gate,
             read_error_code=read_error_code,
             read_error_message=read_error_message,
         )
@@ -232,6 +241,11 @@ class PnrWorkspaceService:
             assessment=None,
             ticket_candidate=None,
         )
+        final_pre_issue_gate = build_pnr_final_pre_issue_gate(
+            confirmation_id=confirmation_id,
+            pre_issue_readiness=pre_issue_readiness,
+            ticketing_constraint=None,
+        )
         return PnrWorkspaceResponse(
             booking_id=booking.booking_id,
             confirmation_id=confirmation_id,
@@ -244,6 +258,7 @@ class PnrWorkspaceService:
             assessment=None,
             next_action=None,
             pre_issue_readiness=pre_issue_readiness,
+            final_pre_issue_gate=final_pre_issue_gate,
             read_error_code=code,
             read_error_message=_READ_ERROR_MESSAGE,
         )
