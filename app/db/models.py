@@ -252,6 +252,30 @@ class BookingPnrAttemptRow(Base):
     )
 
 
+class BookingPnrSnapshotRow(Base):
+    """Latest normalized Sabre PNR snapshot for one Booking.
+
+    Raw SOAP payloads, session tokens and unstructured SSR free text are never
+    stored here.
+    """
+
+    __tablename__ = "booking_pnr_snapshots"
+
+    booking_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    confirmation_id: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    environment: Mapped[str] = mapped_column(Text, nullable=False)
+    retrieved_at: Mapped[str] = mapped_column(Text, nullable=False)
+    snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        Index(
+            "idx_booking_pnr_snapshots_confirmation",
+            "confirmation_id",
+        ),
+    )
+
+
 class QuoteArtifactRow(Base):
     __tablename__ = "quote_artifacts"
 

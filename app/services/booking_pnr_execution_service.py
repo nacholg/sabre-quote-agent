@@ -99,6 +99,10 @@ class BookingPnrExecutionService:
                 .values(
                     status=BookingStatus.PNR_CREATED.value,
                     revision=attempt.booking_revision + 1,
+                    updated_at=(
+                        attempt.completed_at
+                        or attempt.updated_at
+                    ),
                 )
             )
             if result.rowcount != 1:

@@ -192,6 +192,7 @@ async def test_success_is_idempotent_and_marks_booking_pnr_created(tmp_path):
     assert final_booking is not None
     assert final_booking.status == BookingStatus.PNR_CREATED
     assert final_booking.revision == booking.revision + 1
+    assert final_booking.updated_at == result.completed_at
 
     retry = await service.execute(booking.booking_id, request)
     assert retry.confirmation_id == "ABC123"

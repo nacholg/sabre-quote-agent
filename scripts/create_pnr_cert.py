@@ -22,6 +22,10 @@ from app.services.booking_pnr_execution_service import (
     BookingPnrExecutionReconciliationRequiredError,
     BookingPnrExecutionService,
 )
+from app.services.booking_create_pnr_workflow_service import (
+    BookingCreatePnrFreshRevalidationError,
+    BookingCreatePnrWorkflowService,
+)
 from app.services.booking_repository import get_booking_repository
 
 
@@ -99,6 +103,10 @@ def _preview(
     if revision is not None:
         print(f"selected_fare_currency={revision.snapshot.fare.currency}")
         print(f"selected_fare_total={revision.snapshot.fare.total_price}")
+        print(
+            "selected_brand_code="
+            f"{revision.snapshot.fare.brand_code or '-'}"
+        )
     if readiness.warnings:
         print("warnings=" + ",".join(readiness.warnings))
     print("PII omitted from preview.")
@@ -152,13 +160,24 @@ async def _execute(
         provider=provider,
     )
 
+    workflow = BookingCreatePnrWorkflowService(
+        booking_repository=repository,
+        execution_service=service,
+    )
+
     request = BookingCreatePnrRequest(
         revision=booking.revision,
         client_request_id=client_request_id,
     )
 
     try:
-        attempt = await service.execute(booking_id, request)
+        attempt = await workflow.execute(booking_id, request)
+    except BookingCreatePnrFreshRevalidationError as exc:
+        print()
+        print("RESULT=FRESH_REVALIDATION_FAILED")
+        print("CREATE_BOOKING_NOT_SENT")
+        print(f"detail={str(exc)[:1000]}")
+        return 5
     except BookingPnrExecutionReconciliationRequiredError as exc:
         attempt = BookingPnrAttemptService(
             booking_repository=repository
@@ -247,6 +266,10 @@ def main() -> int:
         print()
         print("PREVIEW ONLY - no request was sent to Sabre Create Booking.")
         print(
+            "Actual CERT write performs a fresh automatic revalidation "
+            "before Create Booking."
+        )
+        print(
             "For the actual CERT write, reuse one explicit UUID, e.g.:"
         )
         optional_mode = (
@@ -255,7 +278,7 @@ def main() -> int:
             else ""
         )
         print(
-            "python scripts/create_pnr_cert.py "
+            "python -m scripts.create_pnr_cert "
             f"{booking.booking_id} "
             f"{optional_mode}"
             f"--client-request-id {suggested} "

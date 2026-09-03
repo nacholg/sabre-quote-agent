@@ -78,3 +78,5 @@ def test_cert_harness_defaults_to_no_flight_pricing_and_has_explicit_experiment(
     assert "omitted_default" in lower
     assert "experimental_enabled" in lower
     assert "selected_fare_currency=" in lower
+    assert "selected_brand_code=" in lower
+    assert "python -m scripts.create_pnr_cert" in lower
