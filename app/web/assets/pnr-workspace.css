@@ -878,3 +878,61 @@
     justify-self:start;
   }
 }
+
+.fare-refresh-action{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  margin-top:12px;
+  padding-top:12px;
+  border-top:1px solid #e3edf4;
+}
+
+.fare-refresh-action>small{
+  color:var(--muted);
+  font-size:10px;
+  line-height:1.45;
+}
+
+.fare-refresh-apply-button{
+  align-self:flex-start;
+  padding:9px 12px;
+  border:1px solid #17648d;
+  border-radius:9px;
+  background:#17648d;
+  color:#fff;
+  cursor:pointer;
+  font-size:11px;
+  font-weight:850;
+}
+
+.fare-refresh-apply-button:disabled{
+  cursor:wait;
+  opacity:.65;
+}
+
+.fare-refresh-alert{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  padding:10px 11px;
+  border:1px solid #f4d99b;
+  border-radius:9px;
+  background:#fffdf7;
+}
+
+.fare-refresh-alert.danger{
+  border-color:#f4c7c2;
+  background:#fffafa;
+}
+
+.fare-refresh-alert strong{
+  color:var(--navy);
+  font-size:11px;
+}
+
+.fare-refresh-alert small{
+  color:#667085;
+  font-size:10px;
+  line-height:1.45;
+}

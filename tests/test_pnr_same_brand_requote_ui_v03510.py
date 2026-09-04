@@ -17,10 +17,11 @@ def test_workspace_auto_refreshes_expired_fare_read_only() -> None:
     assert "El PNR no fue modificado." in source
 
 
-def test_fare_refresh_ui_keeps_zero_write_contract() -> None:
+def test_fare_refresh_discovery_keeps_read_only_contract() -> None:
     source = JS.read_text(encoding="utf-8")
 
-    assert 'method: "POST"' not in source
+    assert 'method: "GET"' in source
+    assert "/pnr-fare-refresh`" in source
     assert 'method: "PUT"' not in source
     assert 'method: "PATCH"' not in source
     assert 'method: "DELETE"' not in source

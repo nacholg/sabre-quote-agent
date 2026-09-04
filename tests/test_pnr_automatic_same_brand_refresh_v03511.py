@@ -457,3 +457,21 @@ async def test_post_eot_read_failure_requires_reconciliation_no_authority() -> N
     assert result.sabre_mutation_performed is True
     assert store.calls == 1
     assert authorities.saved == []
+
+@pytest.mark.asyncio
+async def test_confirmed_candidate_change_blocks_before_any_write() -> None:
+    service, reader, store, authorities = _service()
+
+    result = await service.refresh(
+        "B-1",
+        expected_brand_code="MAINFL",
+        expected_currency="USD",
+        expected_total=Decimal("799.99"),
+    )
+
+    assert result.status == PnrAutomaticSameBrandRefreshStatus.BLOCKED
+    assert result.blockers == ["CONFIRMED_CANDIDATE_CHANGED"]
+    assert result.sabre_mutation_performed is False
+    assert reader.calls == 0
+    assert store.calls == 0
+    assert authorities.saved == []

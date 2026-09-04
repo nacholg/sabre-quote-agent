@@ -115,6 +115,10 @@ class PnrAutomaticSameBrandRefreshService:
     async def refresh(
         self,
         booking_id: str,
+        *,
+        expected_brand_code: str | None = None,
+        expected_currency: str | None = None,
+        expected_total: Decimal | None = None,
     ) -> PnrAutomaticSameBrandRefreshResponse:
         booking = self.booking_repository.get(booking_id)
         if booking is None:
@@ -265,6 +269,50 @@ class PnrAutomaticSameBrandRefreshService:
                 candidate_total=candidate_total,
                 blockers=["DISCOVERY_PRICE_IDENTITY_INCOMPLETE"],
             )
+
+        confirmed_values = (
+            expected_brand_code,
+            expected_currency,
+            expected_total,
+        )
+        if any(value is not None for value in confirmed_values):
+            if any(value is None for value in confirmed_values):
+                return self._response(
+                    booking_id=booking_id,
+                    confirmation_id=discovered.confirmation_id,
+                    status=PnrAutomaticSameBrandRefreshStatus.BLOCKED,
+                    brand_code=brand_code,
+                    source_total=original_total,
+                    candidate_total=candidate_total,
+                    price_difference=discovered.price_difference,
+                    blockers=["CONFIRMED_CANDIDATE_INCOMPLETE"],
+                    message=(
+                        "La acción de pricing debe confirmar BrandID, moneda "
+                        "y total exactos."
+                    ),
+                )
+
+            confirmed_brand = str(expected_brand_code).strip().upper()
+            confirmed_currency = str(expected_currency).strip().upper()
+            if (
+                confirmed_brand != brand_code
+                or confirmed_currency != candidate_currency
+                or expected_total != candidate_total
+            ):
+                return self._response(
+                    booking_id=booking_id,
+                    confirmation_id=discovered.confirmation_id,
+                    status=PnrAutomaticSameBrandRefreshStatus.BLOCKED,
+                    brand_code=brand_code,
+                    source_total=original_total,
+                    candidate_total=candidate_total,
+                    price_difference=discovered.price_difference,
+                    blockers=["CONFIRMED_CANDIDATE_CHANGED"],
+                    message=(
+                        "La tarifa same-brand cambió desde la confirmación "
+                        "del agente. Revisá el nuevo importe antes de guardar."
+                    ),
+                )
 
         locator = str(discovered.confirmation_id or "").strip().upper()
         if not locator:
@@ -579,3 +627,7 @@ class PnrAutomaticSameBrandRefreshService:
                 "Authority persisted."
             ),
         )
+
+def get_pnr_automatic_same_brand_refresh_service(
+) -> PnrAutomaticSameBrandRefreshService:
+    return PnrAutomaticSameBrandRefreshService()

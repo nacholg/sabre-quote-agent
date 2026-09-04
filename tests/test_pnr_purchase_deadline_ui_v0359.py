@@ -13,11 +13,14 @@ def test_ui_uses_active_pq_purchase_deadline() -> None:
     assert "PURCHASE_DEADLINE_EXPIRED" in source
 
 
-def test_ui_keeps_ticketing_write_disabled() -> None:
+def test_ui_keeps_ticket_issuance_write_disabled() -> None:
     source = JS.read_text(encoding="utf-8")
 
-    assert 'method: "POST"' not in source
+    # Explicit same-brand PQ refresh is now allowed; ticket issuance is not.
+    assert "/pnr-fare-refresh/apply" in source
+    assert 'method: "POST"' in source
     assert 'method: "PUT"' not in source
     assert 'method: "PATCH"' not in source
     assert 'method: "DELETE"' not in source
+    assert '$("issueTicketButton")?.addEventListener' not in source
     assert "issueButton.disabled = true" in source

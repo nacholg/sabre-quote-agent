@@ -223,6 +223,13 @@ class PnrAutomaticSameBrandRefreshStatus(StrEnum):
     RECONCILIATION_REQUIRED = "reconciliation_required"
 
 
+class PnrAutomaticSameBrandRefreshRequest(BaseModel):
+    confirm_same_brand_refresh: bool = False
+    expected_brand_code: str
+    expected_currency: str
+    expected_total: Decimal
+
+
 class PnrAutomaticSameBrandRefreshResponse(BaseModel):
     booking_id: str
     confirmation_id: str | None = None

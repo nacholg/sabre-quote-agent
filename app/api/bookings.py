@@ -14,6 +14,8 @@ from app.models.booking import (
     BookingReviewResponse,
 )
 from app.models.pnr_workspace import (
+    PnrAutomaticSameBrandRefreshRequest,
+    PnrAutomaticSameBrandRefreshResponse,
     PnrSameBrandRequoteResponse,
     PnrWorkspaceResponse,
 )
@@ -56,6 +58,9 @@ from app.services.pnr_workspace_service import (
 )
 from app.services.pnr_same_brand_requote_service import (
     get_pnr_same_brand_requote_service,
+)
+from app.services.pnr_automatic_same_brand_refresh_service import (
+    get_pnr_automatic_same_brand_refresh_service,
 )
 from app.services.booking_review_service import get_booking_review_service
 from app.services.booking_revalidation_service import (
@@ -373,6 +378,38 @@ async def refresh_booking_pnr_fare(
             status_code=409,
             detail=str(exc),
         ) from exc
+
+
+@router.post(
+    "/bookings/{booking_id}/pnr-fare-refresh/apply",
+    response_model=PnrAutomaticSameBrandRefreshResponse,
+    summary="Guardar nueva PQ same-brand con confirmación explícita",
+)
+async def apply_booking_pnr_fare_refresh(
+    booking_id: str,
+    request: PnrAutomaticSameBrandRefreshRequest,
+) -> PnrAutomaticSameBrandRefreshResponse:
+    if not request.confirm_same_brand_refresh:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Se requiere confirmación explícita para modificar "
+                "el pricing del PNR."
+            ),
+        )
+
+    try:
+        return await get_pnr_automatic_same_brand_refresh_service().refresh(
+            booking_id,
+            expected_brand_code=request.expected_brand_code,
+            expected_currency=request.expected_currency,
+            expected_total=request.expected_total,
+        )
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Reserva no encontrada: {booking_id}",
+        )
 
 
 @router.get(

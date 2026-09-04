@@ -14,6 +14,8 @@
   let fareRefresh = null;
   let fareRefreshLoading = false;
   let fareRefreshAttempted = false;
+  let fareRefreshApplying = false;
+  let fareRefreshApplyResult = null;
 
   function esc(value) {
     return String(value ?? "")
@@ -397,6 +399,104 @@
     }[reason] || reason;
   }
 
+  function renderFareRefreshAction() {
+    const host = $("fareRefreshAction");
+    if (!host) return;
+
+    if (fareRefresh?.status !== "found") {
+      host.innerHTML = "";
+      show("fareRefreshAction", false);
+      return;
+    }
+
+    show("fareRefreshAction", true);
+
+    if (fareRefreshApplying) {
+      host.innerHTML = `
+        <div class="data-item">
+          <strong>Guardando nueva PQ same-brand…</strong>
+          <small>
+            No cierres ni repitas la acción. Esperando confirmación y
+            reconciliación desde Sabre.
+          </small>
+        </div>
+      `;
+      return;
+    }
+
+    if (fareRefreshApplyResult) {
+      const result = fareRefreshApplyResult;
+      if (result.status === "reconciliation_required") {
+        host.innerHTML = `
+          <div class="fare-refresh-alert danger">
+            <strong>Reconciliación requerida</strong>
+            <small>
+              ${esc(
+                result.message ||
+                "Sabre pudo haber procesado el pricing, pero el resultado no quedó verificado."
+              )}
+              No reintentar automáticamente. Actualizá desde Sabre y revisá el PNR.
+            </small>
+          </div>
+        `;
+        return;
+      }
+
+      if (result.status === "failed_safe") {
+        host.innerHTML = `
+          <div class="fare-refresh-alert warning">
+            <strong>Actualización cancelada de forma segura</strong>
+            <small>
+              ${esc(result.message || "No se registró una nueva Pricing Authority.")}
+            </small>
+          </div>
+        `;
+        return;
+      }
+
+      if (result.status === "blocked") {
+        host.innerHTML = `
+          <div class="fare-refresh-alert warning">
+            <strong>Actualización bloqueada</strong>
+            <small>
+              ${esc(result.message || "No se modificó el pricing del PNR.")}
+            </small>
+            ${
+              (result.blockers || []).length
+                ? `<small>Bloqueo: ${esc(result.blockers.join(" · "))}</small>`
+                : ""
+            }
+          </div>
+        `;
+        return;
+      }
+
+      host.innerHTML = `
+        <div class="fare-refresh-alert warning">
+          <strong>No se pudo completar la actualización</strong>
+          <small>${esc(result.message || "Revisá el estado actual antes de reintentar.")}</small>
+        </div>
+      `;
+      return;
+    }
+
+    host.innerHTML = `
+      <button
+        id="applyFareRefreshButton"
+        class="fare-refresh-apply-button"
+        type="button"
+      >
+        Guardar nueva PQ same-brand
+      </button>
+      <small>
+        Esta acción modifica el pricing del PNR en Sabre. Conserva la misma
+        brand y NO emite ticket.
+      </small>
+    `;
+
+    $("applyFareRefreshButton")?.addEventListener("click", applyFareRefresh);
+  }
+
   function renderFareRefresh() {
     const panel = $("fareRefreshPanel");
     if (!panel) return;
@@ -410,6 +510,7 @@
     if (!visible) return;
 
     if (fareRefreshLoading) {
+      show("fareRefreshAction", false);
       text("fareRefreshTitle", "Tarifa expirada");
       text("fareRefreshBadge", "Recotizando…");
       $("fareRefreshBody").innerHTML = `
@@ -424,6 +525,7 @@
     }
 
     if (!fareRefresh) {
+      show("fareRefreshAction", false);
       text("fareRefreshTitle", "Tarifa expirada");
       text("fareRefreshBadge", "Pendiente");
       $("fareRefreshBody").innerHTML = `
@@ -499,9 +601,11 @@
           </small>
         </div>
       `;
+      renderFareRefreshAction();
       return;
     }
 
+    show("fareRefreshAction", false);
     if (fareRefresh.status === "same_brand_unavailable") {
       text("fareRefreshTitle", "Tarifa original no disponible");
       text("fareRefreshBadge", "SIN MISMA BRAND");
@@ -1125,6 +1229,100 @@
     return data;
   }
 
+  async function postJson(url, body) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      cache: "no-store",
+      body: JSON.stringify(body),
+    });
+
+    let data = null;
+    try {
+      data = await response.json();
+    } catch {
+      data = null;
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        data?.detail || `No se pudo actualizar el pricing (HTTP ${response.status}).`
+      );
+    }
+    return data;
+  }
+
+  async function applyFareRefresh() {
+    if (
+      fareRefreshApplying ||
+      fareRefresh?.status !== "found"
+    ) {
+      return;
+    }
+
+    const oldFare = money(
+      fareRefresh.source_total,
+      fareRefresh.source_currency
+    );
+    const newFare = money(
+      fareRefresh.candidate_total,
+      fareRefresh.candidate_currency
+    );
+    const brand = (
+      fareRefresh.candidate_brand_code ||
+      fareRefresh.source_brand_code ||
+      "misma brand"
+    );
+
+    const confirmed = window.confirm(
+      `Guardar una nueva PQ ${brand}: ${oldFare} → ${newFare}? ` +
+      "Esto modifica el pricing del PNR en Sabre pero NO emite ticket."
+    );
+    if (!confirmed) return;
+
+    fareRefreshApplying = true;
+    fareRefreshApplyResult = null;
+    renderFareRefresh();
+
+    let shouldSync = false;
+    try {
+      fareRefreshApplyResult = await postJson(
+        `/bookings/${encodeURIComponent(bookingId)}/pnr-fare-refresh/apply`,
+        {
+          confirm_same_brand_refresh: true,
+          expected_brand_code: fareRefresh.candidate_brand_code,
+          expected_currency: fareRefresh.candidate_currency,
+          expected_total: fareRefresh.candidate_total,
+        }
+      );
+
+      shouldSync = (
+        fareRefreshApplyResult.status === "updated" ||
+        fareRefreshApplyResult.status === "not_required"
+      );
+    } catch (error) {
+      fareRefreshApplyResult = {
+        status: "error",
+        message: error.message || String(error),
+        blockers: [],
+        sabre_mutation_performed: false,
+      };
+    } finally {
+      fareRefreshApplying = false;
+    }
+
+    if (shouldSync) {
+      await syncWorkspace();
+      return;
+    }
+
+    renderFareRefresh();
+    renderNextAction();
+  }
+
   async function loadBooking() {
     try {
       booking = await fetchJson(
@@ -1155,6 +1353,7 @@
       );
       fareRefresh = null;
       fareRefreshAttempted = false;
+      fareRefreshApplyResult = null;
       renderWorkspace();
       show("workspaceLoading", false);
       show("pnrWorkspace", true);

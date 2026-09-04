@@ -38,8 +38,11 @@ def test_pre_issue_review_consumes_read_only_workspace_contract() -> None:
     assert 'checkByCode("ACTIVE_PRICING_SELECTED")' in js
     assert '"PRICING_PASSENGER_COVERAGE"' in js
 
+    # Workspace/pre-issue synchronization remains GET-only. The single POST
+    # introduced in d2 is a separately confirmed pricing action, not issuance.
     assert 'method: "GET"' in js
-    assert 'method: "POST"' not in js
+    assert "/pnr-fare-refresh/apply" in js
+    assert 'method: "POST"' in js
     assert 'method: "PUT"' not in js
     assert 'method: "PATCH"' not in js
     assert 'method: "DELETE"' not in js

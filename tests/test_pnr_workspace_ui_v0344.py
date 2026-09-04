@@ -26,7 +26,7 @@ def test_pnr_workspace_is_a_separate_post_create_page() -> None:
     assert "/app/assets/pnr-workspace.css" in html
 
 
-def test_pnr_workspace_frontend_is_read_only() -> None:
+def test_pnr_workspace_reads_stay_get_only_and_issuance_stays_disabled() -> None:
     js = (ASSETS / "pnr-workspace.js").read_text(
         encoding="utf-8"
     )
@@ -36,7 +36,9 @@ def test_pnr_workspace_frontend_is_read_only() -> None:
         in js
     )
     assert 'method: "GET"' in js
-    assert 'method: "POST"' not in js
+    # d2 intentionally adds one separately confirmed pricing write action.
+    assert "/pnr-fare-refresh/apply" in js
+    assert 'method: "POST"' in js
     assert 'method: "PUT"' not in js
     assert 'method: "DELETE"' not in js
     assert "Actualizar desde Sabre" in js
@@ -45,6 +47,8 @@ def test_pnr_workspace_frontend_is_read_only() -> None:
     assert 'code === "ADTK"' in js
     assert 'code === "OTHS"' in js
     assert "createPnr" not in js
+    assert '$("issueTicketButton")?.addEventListener' not in js
+    assert "issueButton.disabled = true" in js
 
 
 def test_main_exposes_pnr_workspace_web_route() -> None:
