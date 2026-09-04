@@ -184,6 +184,37 @@ class PnrPurchaseDeadline(BaseModel):
     message: str | None = None
 
 
+class PnrSameBrandRequoteStatus(StrEnum):
+    NOT_REQUIRED = "not_required"
+    FOUND = "found"
+    SAME_BRAND_UNAVAILABLE = "same_brand_unavailable"
+    EXACT_ITINERARY_UNAVAILABLE = "exact_itinerary_unavailable"
+    BLOCKED = "blocked"
+
+
+class PnrSameBrandRequoteResponse(BaseModel):
+    booking_id: str
+    confirmation_id: str
+    status: PnrSameBrandRequoteStatus
+    read_only: bool = True
+    trigger_reasons: list[str] = Field(default_factory=list)
+    source_brand_code: str | None = None
+    source_brand_name: str | None = None
+    source_currency: str | None = None
+    source_total: Decimal | None = None
+    candidate_brand_code: str | None = None
+    candidate_brand_name: str | None = None
+    candidate_currency: str | None = None
+    candidate_total: Decimal | None = None
+    price_difference: Decimal | None = None
+    candidate_fare_basis_codes: list[str] = Field(default_factory=list)
+    candidate_last_ticket_date: str | None = None
+    provider: str | None = None
+    provider_reference: str | None = None
+    blockers: list[str] = Field(default_factory=list)
+    message: str | None = None
+
+
 class PnrFinalPreIssueGateStatus(StrEnum):
     READY = "ready"
     BLOCKED = "blocked"

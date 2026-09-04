@@ -11,6 +11,9 @@
   let booking = null;
   let workspace = null;
   let loading = false;
+  let fareRefresh = null;
+  let fareRefreshLoading = false;
+  let fareRefreshAttempted = false;
 
   function esc(value) {
     return String(value ?? "")
@@ -367,6 +370,216 @@
     }).join("");
   }
 
+  function needsFareRefresh() {
+    if (
+      !workspace?.snapshot ||
+      workspace?.stale === true ||
+      workspace?.read_error_code
+    ) {
+      return false;
+    }
+
+    const itineraryChanged = (
+      workspace?.pricing_selection?.candidates || []
+    ).some(quote => quote.itinerary_changed === true);
+
+    const purchaseExpired = (
+      workspace?.purchase_deadline?.status === "expired"
+    );
+
+    return itineraryChanged || purchaseExpired;
+  }
+
+  function fareRefreshReasonLabel(reason) {
+    return {
+      PQ_ITINERARY_CHANGED: "El itinerario cambió desde el pricing original",
+      PURCHASE_DEADLINE_EXPIRED: "La tarifa almacenada superó su vencimiento",
+    }[reason] || reason;
+  }
+
+  function renderFareRefresh() {
+    const panel = $("fareRefreshPanel");
+    if (!panel) return;
+
+    const visible = (
+      needsFareRefresh() ||
+      fareRefreshLoading ||
+      Boolean(fareRefresh)
+    );
+    show("fareRefreshPanel", visible);
+    if (!visible) return;
+
+    if (fareRefreshLoading) {
+      text("fareRefreshTitle", "Tarifa expirada");
+      text("fareRefreshBadge", "Recotizando…");
+      $("fareRefreshBody").innerHTML = `
+        <div class="data-item">
+          <strong>Buscando la misma branded fare</strong>
+          <small>
+            Se consulta Sabre sin modificar el PNR ni guardar un nuevo PQ.
+          </small>
+        </div>
+      `;
+      return;
+    }
+
+    if (!fareRefresh) {
+      text("fareRefreshTitle", "Tarifa expirada");
+      text("fareRefreshBadge", "Pendiente");
+      $("fareRefreshBody").innerHTML = `
+        <div class="data-item">
+          <strong>La tarifa almacenada requiere actualización.</strong>
+          <small>
+            La recotización se hará sobre el itinerario exacto y la misma brand.
+          </small>
+        </div>
+      `;
+      return;
+    }
+
+    if (fareRefresh.status === "found") {
+      text("fareRefreshTitle", "Nueva tarifa encontrada");
+      text("fareRefreshBadge", "MISMA BRAND");
+
+      const oldFare = money(
+        fareRefresh.source_total,
+        fareRefresh.source_currency
+      );
+      const newFare = money(
+        fareRefresh.candidate_total,
+        fareRefresh.candidate_currency
+      );
+      const difference = Number(fareRefresh.price_difference);
+      const differenceText = Number.isFinite(difference)
+        ? `${difference >= 0 ? "+" : ""}${money(
+            difference,
+            fareRefresh.candidate_currency
+          )}`
+        : "—";
+
+      $("fareRefreshBody").innerHTML = `
+        <div class="data-item">
+          <strong>${esc(oldFare)} → ${esc(newFare)}</strong>
+          <small>Diferencia: ${esc(differenceText)}</small>
+        </div>
+        <div class="data-item">
+          <strong>
+            ${esc(
+              fareRefresh.candidate_brand_name ||
+              fareRefresh.candidate_brand_code ||
+              "Branded fare"
+            )}
+          </strong>
+          <small>
+            Brand ${esc(fareRefresh.candidate_brand_code || "—")}
+            · Fare basis ${esc(
+              (fareRefresh.candidate_fare_basis_codes || []).join(" / ") || "—"
+            )}
+          </small>
+        </div>
+        ${
+          fareRefresh.candidate_last_ticket_date
+            ? `
+              <div class="data-item">
+                <strong>
+                  Fecha informativa BFM:
+                  ${esc(fareRefresh.candidate_last_ticket_date)}
+                </strong>
+                <small>
+                  No se usa como deadline operativo hasta guardar y releer un PQ.
+                </small>
+              </div>
+            `
+            : ""
+        }
+        <div class="data-item">
+          <strong>El PNR no fue modificado.</strong>
+          <small>
+            La nueva tarifa todavía no está almacenada como PQ y no habilita emisión.
+          </small>
+        </div>
+      `;
+      return;
+    }
+
+    if (fareRefresh.status === "same_brand_unavailable") {
+      text("fareRefreshTitle", "Tarifa original no disponible");
+      text("fareRefreshBadge", "SIN MISMA BRAND");
+    } else if (
+      fareRefresh.status === "exact_itinerary_unavailable"
+    ) {
+      text("fareRefreshTitle", "Itinerario no disponible");
+      text("fareRefreshBadge", "REVISAR");
+    } else if (fareRefresh.status === "blocked") {
+      text("fareRefreshTitle", "Recotización bloqueada");
+      text("fareRefreshBadge", "REVISAR");
+    } else {
+      text("fareRefreshTitle", "No se pudo recotizar");
+      text("fareRefreshBadge", "ERROR");
+    }
+
+    const reasons = fareRefresh.trigger_reasons || [];
+    const blockers = fareRefresh.blockers || [];
+    $("fareRefreshBody").innerHTML = `
+      <div class="data-item">
+        <strong>${esc(
+          fareRefresh.message ||
+          "No se obtuvo una nueva tarifa de la misma brand."
+        )}</strong>
+        ${
+          reasons.length
+            ? `<small>${reasons
+                .map(fareRefreshReasonLabel)
+                .map(esc)
+                .join(" · ")}</small>`
+            : ""
+        }
+      </div>
+      ${
+        blockers.length
+          ? `
+            <div class="data-item">
+              <strong>Bloqueos</strong>
+              <small>${blockers.map(esc).join(" · ")}</small>
+            </div>
+          `
+          : ""
+      }
+    `;
+  }
+
+  async function autoRefreshFareIfNeeded() {
+    if (
+      fareRefreshAttempted ||
+      fareRefreshLoading ||
+      !needsFareRefresh()
+    ) {
+      renderFareRefresh();
+      return;
+    }
+
+    fareRefreshAttempted = true;
+    fareRefreshLoading = true;
+    renderFareRefresh();
+
+    try {
+      fareRefresh = await fetchJson(
+        `/bookings/${encodeURIComponent(bookingId)}/pnr-fare-refresh`
+      );
+    } catch (error) {
+      fareRefresh = {
+        status: "error",
+        message: error.message || String(error),
+        blockers: [],
+        trigger_reasons: [],
+      };
+    } finally {
+      fareRefreshLoading = false;
+      renderFareRefresh();
+      renderNextAction();
+    }
+  }
+
   function assessmentCard(check) {
     return `
       <article class="assessment-item ${
@@ -451,6 +664,36 @@
     }
 
     const next = workspace?.next_action;
+
+    if (next?.code === "reprice_required" && fareRefreshLoading) {
+      text("nextActionTitle", "Tarifa expirada · recotizando");
+      text(
+        "nextActionDescription",
+        "Buscando en Sabre el itinerario exacto y la misma branded fare. El PNR no se modifica."
+      );
+      show("nextActionReason", false);
+      return;
+    }
+
+    if (
+      next?.code === "reprice_required" &&
+      fareRefresh?.status === "found"
+    ) {
+      text("nextActionTitle", "Tarifa expirada · nueva tarifa encontrada");
+      text(
+        "nextActionDescription",
+        `${money(
+          fareRefresh.source_total,
+          fareRefresh.source_currency
+        )} → ${money(
+          fareRefresh.candidate_total,
+          fareRefresh.candidate_currency
+        )}. Misma branded fare ${fareRefresh.candidate_brand_code || "confirmada"}. Falta guardar un nuevo PQ antes de emisión.`
+      );
+      show("nextActionReason", false);
+      return;
+    }
+
     const finalGateBlocked = (
       next?.code === "issue_ticket" &&
       workspace?.final_pre_issue_gate?.status === "blocked"
@@ -852,6 +1095,7 @@
     renderSegments();
     renderPassengersAndContacts();
     renderPricing();
+    renderFareRefresh();
     renderChecks();
     renderNextAction();
     renderTicketing();
@@ -909,9 +1153,12 @@
       workspace = await fetchJson(
         `/bookings/${encodeURIComponent(bookingId)}/pnr-workspace`
       );
+      fareRefresh = null;
+      fareRefreshAttempted = false;
       renderWorkspace();
       show("workspaceLoading", false);
       show("pnrWorkspace", true);
+      await autoRefreshFareIfNeeded();
     } catch (error) {
       $("workspaceError").textContent = error.message || String(error);
       show("workspaceError", true);

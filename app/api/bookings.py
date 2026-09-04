@@ -13,7 +13,10 @@ from app.models.booking import (
     BookingRevalidationResponse,
     BookingReviewResponse,
 )
-from app.models.pnr_workspace import PnrWorkspaceResponse
+from app.models.pnr_workspace import (
+    PnrSameBrandRequoteResponse,
+    PnrWorkspaceResponse,
+)
 from app.services.booking_contact_service import (
     BookingContactLockedError,
     BookingContactRevisionConflictError,
@@ -50,6 +53,9 @@ from app.services.booking_pnr_execution_service import (
 from app.services.pnr_workspace_service import (
     PnrWorkspaceStateError,
     get_pnr_workspace_service,
+)
+from app.services.pnr_same_brand_requote_service import (
+    get_pnr_same_brand_requote_service,
 )
 from app.services.booking_review_service import get_booking_review_service
 from app.services.booking_revalidation_service import (
@@ -339,6 +345,30 @@ async def get_booking_pnr_workspace(
             detail=f"Reserva no encontrada: {booking_id}",
         )
     except PnrWorkspaceStateError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get(
+    "/bookings/{booking_id}/pnr-fare-refresh",
+    response_model=PnrSameBrandRequoteResponse,
+    summary="Recotizar misma branded fare sin modificar el PNR",
+)
+async def refresh_booking_pnr_fare(
+    booking_id: str,
+) -> PnrSameBrandRequoteResponse:
+    try:
+        return await get_pnr_same_brand_requote_service().refresh(
+            booking_id
+        )
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Reserva no encontrada: {booking_id}",
+        )
+    except ValueError as exc:
         raise HTTPException(
             status_code=409,
             detail=str(exc),
