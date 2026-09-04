@@ -35,6 +35,7 @@ def _quote(
     currency: str | None = "USD",
     carrier: str | None = "AA",
     total: str | None = "781.33",
+    itinerary_changed: bool | None = False,
 ) -> PnrPriceQuote:
     return PnrPriceQuote(
         record_number=record,
@@ -45,6 +46,7 @@ def _quote(
         total_currency=currency,
         validating_carrier=carrier,
         total_amount=(Decimal(total) if total is not None else None),
+        itinerary_changed=itinerary_changed,
     )
 
 
@@ -175,6 +177,7 @@ def test_two_active_pqs_can_form_one_candidate_set() -> None:
         total_currency="USD",
         validating_carrier="AA",
         total_amount=Decimal("281.33"),
+        itinerary_changed=False,
     )
     coverage = PnrPricingCoverage(
         status=PnrPricingCoverageStatus.EXACT,
@@ -208,3 +211,31 @@ def test_two_active_pqs_can_form_one_candidate_set() -> None:
         "1",
         "2",
     ]
+
+
+def test_itinerary_changed_blocks_ticket_candidate() -> None:
+    candidate = build_pnr_ticket_candidate(
+        snapshot=_snapshot(),
+        fare=_fare(),
+        selection=_selection(
+            _quote(itinerary_changed=True)
+        ),
+        coverage=_coverage(),
+    )
+
+    assert candidate.status == PnrTicketCandidateStatus.BLOCKED
+    assert candidate.blockers == ["PQ_ITINERARY_CHANGED"]
+
+
+def test_unknown_itinerary_changed_fails_closed() -> None:
+    candidate = build_pnr_ticket_candidate(
+        snapshot=_snapshot(),
+        fare=_fare(),
+        selection=_selection(
+            _quote(itinerary_changed=None)
+        ),
+        coverage=_coverage(),
+    )
+
+    assert candidate.status == PnrTicketCandidateStatus.BLOCKED
+    assert candidate.blockers == ["PQ_ITINERARY_CHANGE_UNKNOWN"]

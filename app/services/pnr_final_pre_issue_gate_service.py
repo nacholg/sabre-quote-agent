@@ -7,6 +7,8 @@ from app.models.pnr_workspace import (
     PnrFinalPreIssueGateStatus,
     PnrPreIssueReadiness,
     PnrPreIssueReadinessStatus,
+    PnrPurchaseDeadline,
+    PnrPurchaseDeadlineStatus,
     PnrTicketingConstraint,
     PnrTicketingConstraintStatus,
 )
@@ -29,6 +31,7 @@ def build_pnr_final_pre_issue_gate(
     confirmation_id: str,
     pre_issue_readiness: PnrPreIssueReadiness | None,
     ticketing_constraint: PnrTicketingConstraint | None,
+    purchase_deadline: PnrPurchaseDeadline | None = None,
     now: datetime | None = None,
 ) -> PnrFinalPreIssueGate:
     """Compose the final read-only gate before any future ticketing write.
@@ -60,14 +63,51 @@ def build_pnr_final_pre_issue_gate(
 
     deadline_at: str | None = None
     deadline_expired: bool | None = None
-    constraint_status = None
+    constraint_status = (
+        ticketing_constraint.status
+        if ticketing_constraint is not None
+        else None
+    )
+    purchase_status = (
+        purchase_deadline.status
+        if purchase_deadline is not None
+        else None
+    )
+    purchase_deadline_at = (
+        purchase_deadline.purchase_deadline_at
+        if purchase_deadline is not None
+        else None
+    )
+    operational_deadline_at = (
+        purchase_deadline.operational_deadline_at
+        if purchase_deadline is not None
+        else None
+    )
 
-    if ticketing_constraint is None:
+    if purchase_deadline is not None:
+        deadline_at = operational_deadline_at
+        if purchase_deadline.status == PnrPurchaseDeadlineStatus.EXPIRED:
+            deadline_expired = True
+            blockers.append("PURCHASE_DEADLINE_EXPIRED")
+        elif purchase_deadline.status != PnrPurchaseDeadlineStatus.RESOLVED:
+            blockers.extend(
+                purchase_deadline.blockers
+                or ["PURCHASE_DEADLINE_UNRESOLVED"]
+            )
+        else:
+            deadline = _parse_deadline(operational_deadline_at)
+            if deadline is None or deadline.tzinfo is None:
+                blockers.append("PURCHASE_DEADLINE_UNRESOLVED")
+            else:
+                deadline_expired = deadline <= evaluated
+                if deadline_expired:
+                    blockers.append("PURCHASE_DEADLINE_EXPIRED")
+    elif ticketing_constraint is None:
         blockers.append("TICKETING_CONSTRAINT_UNAVAILABLE")
     else:
-        constraint_status = ticketing_constraint.status
+        # Backward-compatible fallback for callers that have not yet supplied
+        # ACTIVE-PQ purchase-deadline evidence.
         deadline_at = ticketing_constraint.deadline_at
-
         if (
             ticketing_constraint.status
             != PnrTicketingConstraintStatus.STRUCTURED_DEADLINE
@@ -97,6 +137,9 @@ def build_pnr_final_pre_issue_gate(
         confirmation_id=locator,
         evaluated_at=evaluated.isoformat(),
         ticketing_constraint_status=constraint_status,
+        purchase_deadline_status=purchase_status,
+        purchase_deadline_at=purchase_deadline_at,
+        operational_deadline_at=operational_deadline_at,
         deadline_at=deadline_at,
         deadline_expired=deadline_expired,
         blockers=blockers,

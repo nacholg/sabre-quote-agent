@@ -373,8 +373,12 @@ def _parse_price_quotes(itinerary_info: ET.Element | None) -> list[PnrPriceQuote
             ]
         )
 
+        price_quote_plus = _first_child(
+            price_quote,
+            "PriceQuotePlus",
+        )
         passenger_info = _first_descendant(
-            _first_child(price_quote, "PriceQuotePlus"),
+            price_quote_plus,
             "PassengerInfo",
         )
         passenger_name_numbers = _unique(
@@ -417,6 +421,28 @@ def _parse_price_quotes(itinerary_info: ET.Element | None) -> list[PnrPriceQuote
                 fare_basis=fare_basis,
                 fare_basis_codes=fare_basis_codes,
                 segment_booking_classes=segment_booking_classes,
+                purchase_deadline_raw=next(
+                    (
+                        value
+                        for value in _unique(
+                            [
+                                _text(node)
+                                for node in _descendants(
+                                    price_quote,
+                                    "ResTicketingRestrictions",
+                                )
+                            ]
+                        )
+                        if value.upper().startswith(
+                            "LAST DAY TO PURCHASE "
+                        )
+                    ),
+                    None,
+                ),
+                itinerary_changed=_bool_attr(
+                    price_quote_plus,
+                    "ItineraryChanged",
+                ),
             )
         )
     return result

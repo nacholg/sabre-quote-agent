@@ -46,6 +46,16 @@ def build_pnr_ticket_candidate(
     if not selected:
         blockers.append("NO_ACTIVE_PRICING")
 
+    if selected:
+        itinerary_changed_values = [
+            quote.itinerary_changed
+            for quote in selection.candidates
+        ]
+        if any(value is True for value in itinerary_changed_values):
+            blockers.append("PQ_ITINERARY_CHANGED")
+        elif any(value is None for value in itinerary_changed_values):
+            blockers.append("PQ_ITINERARY_CHANGE_UNKNOWN")
+
     if coverage.status != PnrPricingCoverageStatus.EXACT:
         blockers.append("PRICING_COVERAGE_NOT_EXACT")
 

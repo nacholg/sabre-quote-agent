@@ -333,7 +333,10 @@
           <dl>
             <div>
               <dt>Estado</dt>
-              <dd>${esc(quote.status || "—")}</dd>
+              <dd>
+                ${esc(quote.status || "—")}
+                ${quote.itinerary_changed === true ? " · ITIN CHG" : ""}
+              </dd>
             </div>
             <div>
               <dt>Validating carrier</dt>
@@ -431,6 +434,8 @@
         "El PNR no conserva contacto suficiente para continuar con seguridad.",
       review_pricing:
         "Existe pricing almacenado, pero alguno de sus datos no coincide con el Booking congelado.",
+      reprice_required:
+        "Sabre marca el PQ ACTIVE con ITIN CHG. Se requiere repricing antes de continuar.",
     }[code] || "Revisá los controles de la reserva antes de continuar.";
   }
 
@@ -497,9 +502,13 @@
       : "Sin advisory detectado";
 
     text("ticketingAdvisory", advisory || "—");
+    const purchaseDeadline = workspace?.purchase_deadline || null;
     text(
       "ticketingDeadline",
-      ticketing.deadline_at || "No detectado"
+      purchaseDeadline?.operational_deadline_at ||
+        purchaseDeadline?.purchase_deadline_at ||
+        ticketing.deadline_at ||
+        "No resuelto"
     );
     text(
       "ticketingType",
@@ -587,6 +596,7 @@
     const readiness = workspace?.pre_issue_readiness || null;
     const candidate = workspace?.ticket_candidate || null;
     const constraint = workspace?.ticketing_constraint || null;
+    const purchaseDeadline = workspace?.purchase_deadline || null;
     const finalGate = workspace?.final_pre_issue_gate || null;
 
     const ready = finalGate?.status === "ready";
@@ -625,6 +635,13 @@
       ? "pass"
       : (
           finalBlockers.some(item => [
+            "PURCHASE_DEADLINE_EXPIRED",
+            "PURCHASE_DEADLINE_MISSING",
+            "PURCHASE_DEADLINE_TIME_MISSING",
+            "PURCHASE_DEADLINE_YEAR_UNRESOLVED",
+            "PURCHASE_DEADLINE_FORMAT_UNSUPPORTED",
+            "PURCHASE_DEADLINE_UNRESOLVED",
+            "ACTIVE_PQ_UNAVAILABLE",
             "TICKETING_DEADLINE_UNRESOLVED",
             "TICKETING_DEADLINE_EXPIRED",
             "TICKETING_DEADLINE_TIMEZONE_UNKNOWN",
@@ -635,7 +652,22 @@
         );
 
     let deadlineDetail = "Restricción de ticketing no disponible.";
-    if (constraint?.status === "structured_deadline") {
+    if (purchaseDeadline?.status === "expired") {
+      deadlineDetail = purchaseDeadline?.purchase_deadline_at
+        ? `LAST DAY TO PURCHASE vencido: ${purchaseDeadline.purchase_deadline_at}`
+        : "El LAST DAY TO PURCHASE del PQ ACTIVE ya venció.";
+    } else if (purchaseDeadline?.status === "resolved") {
+      const source = purchaseDeadline?.raw_values?.join(" · ") || "PQ ACTIVE";
+      const operational = purchaseDeadline?.operational_deadline_at || "—";
+      deadlineDetail = purchaseDeadline?.policy_capped
+        ? `${source}. Time limit operativo: ${operational} (cap mañana 12:00 Buenos Aires).`
+        : `${source}. Time limit operativo: ${operational}.`;
+    } else if (purchaseDeadline?.status === "unresolved") {
+      deadlineDetail = (
+        purchaseDeadline?.message ||
+        "No se pudo resolver LAST DAY TO PURCHASE en todos los PQ ACTIVE."
+      );
+    } else if (constraint?.status === "structured_deadline") {
       deadlineDetail = constraint?.deadline_at
         ? `Deadline estructurado: ${constraint.deadline_at}`
         : "Deadline estructurado sin valor utilizable.";
@@ -664,6 +696,13 @@
         "Itinerario confirmado",
         combinedCheckStatus(["SEGMENTS_MATCH", "SEGMENTS_CONFIRMED"]),
         "Segmentos exactos contra el Booking y estado HK.",
+      ],
+      [
+        "PQ vigente para itinerario",
+        checkByCode("PRICING_ITINERARY_CURRENT")?.status || "unknown",
+        checkByCode("PRICING_ITINERARY_CURRENT")?.status === "pass"
+          ? "El PQ ACTIVE no está marcado con ITIN CHG."
+          : "ITIN CHG o estado no verificable: se requiere repricing.",
       ],
       [
         "Pasajeros y pricing",

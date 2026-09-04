@@ -62,6 +62,8 @@ class PnrPriceQuote(BaseModel):
     fare_basis: str | None = None
     fare_basis_codes: list[str] = Field(default_factory=list)
     segment_booking_classes: list[str] = Field(default_factory=list)
+    purchase_deadline_raw: str | None = None
+    itinerary_changed: bool | None = None
 
 
 class PnrPricingSelectionStatus(StrEnum):
@@ -163,6 +165,25 @@ class PnrTicketingConstraint(BaseModel):
     message: str | None = None
 
 
+class PnrPurchaseDeadlineStatus(StrEnum):
+    RESOLVED = "resolved"
+    EXPIRED = "expired"
+    UNRESOLVED = "unresolved"
+
+
+class PnrPurchaseDeadline(BaseModel):
+    status: PnrPurchaseDeadlineStatus
+    timezone: str = "America/Argentina/Buenos_Aires"
+    purchase_deadline_at: str | None = None
+    operational_deadline_at: str | None = None
+    policy_cap_at: str | None = None
+    policy_capped: bool = False
+    source_record_numbers: list[str] = Field(default_factory=list)
+    raw_values: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    message: str | None = None
+
+
 class PnrFinalPreIssueGateStatus(StrEnum):
     READY = "ready"
     BLOCKED = "blocked"
@@ -173,6 +194,9 @@ class PnrFinalPreIssueGate(BaseModel):
     confirmation_id: str
     evaluated_at: str
     ticketing_constraint_status: PnrTicketingConstraintStatus | None = None
+    purchase_deadline_status: PnrPurchaseDeadlineStatus | None = None
+    purchase_deadline_at: str | None = None
+    operational_deadline_at: str | None = None
     deadline_at: str | None = None
     deadline_expired: bool | None = None
     blockers: list[str] = Field(default_factory=list)
@@ -234,6 +258,7 @@ class PnrNextActionCode(StrEnum):
     REVIEW_PASSENGERS = "review_passengers"
     REVIEW_CONTACT = "review_contact"
     REVIEW_PRICING = "review_pricing"
+    REPRICE_REQUIRED = "reprice_required"
 
 
 class PnrAssessmentCheck(BaseModel):
@@ -292,6 +317,7 @@ class PnrWorkspaceResponse(BaseModel):
     ticket_candidate: PnrTicketCandidate | None = None
     pre_issue_readiness: PnrPreIssueReadiness | None = None
     ticketing_constraint: PnrTicketingConstraint | None = None
+    purchase_deadline: PnrPurchaseDeadline | None = None
     final_pre_issue_gate: PnrFinalPreIssueGate | None = None
     read_error_code: str | None = None
     read_error_message: str | None = None

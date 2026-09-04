@@ -495,6 +495,44 @@ class PnrAssessmentService:
         else:
             active_actual = "sin PQ"
 
+        itinerary_changed_values = [
+            quote.itinerary_changed
+            for quote in candidates
+        ]
+        if not selected:
+            itinerary_current_status = PnrCheckStatus.UNKNOWN
+            itinerary_current_blocking = False
+            itinerary_current_actual = "-"
+            itinerary_current_message = (
+                "No hay PQ ACTIVE seleccionado para verificar ITIN CHG."
+            )
+        elif any(
+            value is True
+            for value in itinerary_changed_values
+        ):
+            itinerary_current_status = PnrCheckStatus.FAIL
+            itinerary_current_blocking = True
+            itinerary_current_actual = "ITIN CHG"
+            itinerary_current_message = (
+                "Sabre marca el PQ ACTIVE como afectado por un cambio "
+                "de itinerario. Se requiere repricing."
+            )
+        elif any(
+            value is None
+            for value in itinerary_changed_values
+        ):
+            itinerary_current_status = PnrCheckStatus.UNKNOWN
+            itinerary_current_blocking = True
+            itinerary_current_actual = "no verificable"
+            itinerary_current_message = (
+                "Sabre no devolvió ItineraryChanged para todos los PQ ACTIVE."
+            )
+        else:
+            itinerary_current_status = PnrCheckStatus.PASS
+            itinerary_current_blocking = True
+            itinerary_current_actual = "sin ITIN CHG"
+            itinerary_current_message = None
+
         brand = _upper(fare.brand_code) or fare.brand_name
         return [
             _check(
@@ -513,6 +551,15 @@ class PnrAssessmentService:
                 expected="PQ status ACTIVE",
                 actual=active_actual,
                 message=selection.message,
+            ),
+            _check(
+                "PRICING_ITINERARY_CURRENT",
+                "Pricing corresponde al itinerario actual",
+                itinerary_current_status,
+                blocking=itinerary_current_blocking,
+                expected="sin ITIN CHG",
+                actual=itinerary_current_actual,
+                message=itinerary_current_message,
             ),
             _check(
                 "PRICING_PASSENGER_COVERAGE",
@@ -693,6 +740,11 @@ class PnrAssessmentService:
             code, label = (
                 PnrNextActionCode.REVIEW_PRICING,
                 "Revisar cuál pricing ACTIVE corresponde emitir.",
+            )
+        elif unresolved("PRICING_ITINERARY_CURRENT"):
+            code, label = (
+                PnrNextActionCode.REPRICE_REQUIRED,
+                "Repricing requerido: el PQ no corresponde al itinerario actual.",
             )
         elif unresolved("PRICING_PASSENGER_COVERAGE"):
             code, label = (

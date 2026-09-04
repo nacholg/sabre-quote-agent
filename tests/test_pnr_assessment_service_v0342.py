@@ -26,6 +26,7 @@ from app.models.pnr_workspace import (
     PnrPriceQuote,
     PnrSegment,
     PnrSnapshot,
+    PnrTicketCandidateStatus,
     PnrTicketing,
     PnrWorkspaceStatus,
 )
@@ -142,6 +143,7 @@ def _snapshot(
     phone: str = "+541155551234",
     advisory: bool = False,
     passenger_type: str | None = "ADT",
+    itinerary_changed: bool | None = False,
 ) -> PnrSnapshot:
     return PnrSnapshot(
         confirmation_id="OVFOTM",
@@ -188,6 +190,7 @@ def _snapshot(
                     passenger_name_numbers=["01.01"],
                     total_amount=price,
                     total_currency="USD",
+                    itinerary_changed=itinerary_changed,
                 )
             ]
             if with_price
@@ -425,3 +428,33 @@ def test_active_pq_wrong_passenger_association_blocks_ticketing() -> None:
     assert _check(result, "PRICING_PASSENGER_COVERAGE").status == PnrCheckStatus.FAIL
     assert result.next_action.code == PnrNextActionCode.REVIEW_PRICING
 
+
+def test_itinerary_changed_requires_repricing_and_blocks_candidate() -> None:
+    result = _result(
+        _snapshot(
+            itinerary_changed=True,
+        )
+    )
+
+    check = _check(result, "PRICING_ITINERARY_CURRENT")
+    assert check.status == PnrCheckStatus.FAIL
+    assert check.blocking is True
+    assert result.ticket_candidate.status == PnrTicketCandidateStatus.BLOCKED
+    assert result.ticket_candidate.blockers == ["PQ_ITINERARY_CHANGED"]
+    assert result.assessment.status == PnrWorkspaceStatus.NEEDS_ATTENTION
+    assert result.next_action.code == PnrNextActionCode.REPRICE_REQUIRED
+
+
+def test_unknown_itinerary_change_flag_fails_closed() -> None:
+    result = _result(
+        _snapshot(
+            itinerary_changed=None,
+        )
+    )
+
+    check = _check(result, "PRICING_ITINERARY_CURRENT")
+    assert check.status == PnrCheckStatus.UNKNOWN
+    assert check.blocking is True
+    assert result.ticket_candidate.status == PnrTicketCandidateStatus.BLOCKED
+    assert "PQ_ITINERARY_CHANGE_UNKNOWN" in result.ticket_candidate.blockers
+    assert result.next_action.code == PnrNextActionCode.REPRICE_REQUIRED

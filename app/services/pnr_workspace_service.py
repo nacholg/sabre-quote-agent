@@ -27,6 +27,9 @@ from app.services.pnr_assessment_service import PnrAssessmentService
 from app.services.pnr_pre_issue_readiness_service import (
     build_pnr_pre_issue_readiness,
 )
+from app.services.pnr_purchase_deadline_service import (
+    build_pnr_purchase_deadline,
+)
 from app.services.pnr_final_pre_issue_gate_service import (
     build_pnr_final_pre_issue_gate,
 )
@@ -183,10 +186,14 @@ class PnrWorkspaceService:
         ticketing_constraint = interpret_pnr_ticketing_constraint(
             record.snapshot.ticketing
         )
+        purchase_deadline = build_pnr_purchase_deadline(
+            assessment.pricing_selection
+        )
         final_pre_issue_gate = build_pnr_final_pre_issue_gate(
             confirmation_id=record.confirmation_id,
             pre_issue_readiness=pre_issue_readiness,
             ticketing_constraint=ticketing_constraint,
+            purchase_deadline=purchase_deadline,
         )
         return PnrWorkspaceResponse(
             booking_id=booking.booking_id,
@@ -204,6 +211,7 @@ class PnrWorkspaceService:
             ticket_candidate=assessment.ticket_candidate,
             pre_issue_readiness=pre_issue_readiness,
             ticketing_constraint=ticketing_constraint,
+            purchase_deadline=purchase_deadline,
             final_pre_issue_gate=final_pre_issue_gate,
             read_error_code=read_error_code,
             read_error_message=read_error_message,
