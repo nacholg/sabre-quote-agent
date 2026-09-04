@@ -454,11 +454,17 @@ class SabreSoapBrandPqStoreService:
         expected_total: Decimal,
         expected_segment_count: int,
         expected_validating_carrier: str | None = None,
+        secure_flight_docs_verified: bool = False,
         received_from: str = "SABRE QUOTE AGENT",
     ) -> SabreBrandPqStoreResult:
         if self.settings.sabre_env.strip().upper() != "CERT":
             raise SabreBrandPqStoreError(
                 "Este workflow experimental sólo permite Sabre CERT."
+            )
+        if not secure_flight_docs_verified:
+            raise SabreBrandPqStoreError(
+                "SECURE_FLIGHT_DOCS_REQUIRED: DOCS/Secure Flight debe estar "
+                "verificado en un fresh TIR antes de retener un PQ."
             )
         if not self.settings.sabre_pnr_pricing_enabled:
             raise SabreBrandPqStoreError(

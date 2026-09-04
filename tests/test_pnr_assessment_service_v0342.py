@@ -26,6 +26,7 @@ from app.models.pnr_workspace import (
     PnrPriceQuote,
     PnrSegment,
     PnrSnapshot,
+    PnrSpecialService,
     PnrTicketCandidateStatus,
     PnrTicketing,
     PnrWorkspaceStatus,
@@ -202,6 +203,13 @@ def _snapshot(
             advisory_status="KK" if advisory else None,
             advisory_airline_code="1S" if advisory else None,
         ),
+        special_services=[
+            PnrSpecialService(
+                code="DOCS",
+                status="HK",
+                name_numbers=["01.01"],
+            )
+        ],
     )
 
 

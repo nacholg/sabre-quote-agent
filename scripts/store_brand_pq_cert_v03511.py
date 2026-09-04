@@ -14,7 +14,11 @@ from app.sabre.soap_brand_pq_store import (
 from app.sabre.soap_pnr_read import SabreSoapPnrReadService
 from app.services.booking_pnr_attempt_service import BookingPnrAttemptService
 from app.services.booking_repository import get_booking_repository
+from app.models.pnr_workspace import PnrSecureFlightDocsStatus
 from app.services.pnr_pricing_selection_service import select_pnr_pricing
+from app.services.pnr_secure_flight_docs_service import (
+    assess_pnr_secure_flight_docs,
+)
 
 
 PASSENGER_CODE = {
@@ -107,6 +111,7 @@ def main() -> int:
         raise SystemExit(
             "BRAND PQ CERT HARNESS REFUSAL: PNR no tiene exactamente 1 pasajero."
         )
+    secure_flight_docs = assess_pnr_secure_flight_docs(read.snapshot)
     name_number = read.snapshot.passengers[0].name_number
     if not name_number:
         raise SystemExit(
@@ -146,6 +151,15 @@ def main() -> int:
     print(f"price_matches={str(preview.total == expected_total).lower()}")
     print("retain=false")
     print("end_transaction=false")
+    print(
+        "secure_flight_docs_status="
+        f"{secure_flight_docs.status.value}"
+    )
+    print(
+        "secure_flight_docs_covered="
+        f"{len(secure_flight_docs.covered_name_numbers)}/"
+        f"{secure_flight_docs.passenger_count}"
+    )
 
     if preview.total != expected_total:
         print()
@@ -166,6 +180,16 @@ def main() -> int:
         )
         return 0
 
+    if (
+        secure_flight_docs.status
+        != PnrSecureFlightDocsStatus.COMPLETE
+    ):
+        raise SystemExit(
+            "BRAND PQ CERT HARNESS REFUSAL: "
+            "DOCS/Secure Flight no está completo/verificado para todos "
+            "los pasajeros. No se enviará ¥RQ ni EndTransaction."
+        )
+
     if not settings.sabre_pnr_pricing_enabled:
         raise SystemExit(
             "BRAND PQ CERT HARNESS REFUSAL: "
@@ -183,6 +207,7 @@ def main() -> int:
             expected_total=expected_total,
             expected_segment_count=1,
             expected_validating_carrier=expected_carrier,
+            secure_flight_docs_verified=True,
         )
     except SabreBrandPqStoreReconciliationRequiredError as exc:
         print()

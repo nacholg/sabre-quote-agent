@@ -285,6 +285,22 @@ class PnrSnapshot(BaseModel):
     special_services: list[PnrSpecialService] = Field(default_factory=list)
 
 
+class PnrSecureFlightDocsStatus(StrEnum):
+    COMPLETE = "complete"
+    MISSING = "missing"
+    UNVERIFIED = "unverified"
+
+
+class PnrSecureFlightDocsCoverage(BaseModel):
+    status: PnrSecureFlightDocsStatus
+    passenger_count: int = Field(default=0, ge=0)
+    covered_name_numbers: list[str] = Field(default_factory=list)
+    missing_name_numbers: list[str] = Field(default_factory=list)
+    unverified_name_numbers: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    message: str | None = None
+
+
 class PnrCheckStatus(StrEnum):
     PASS = "pass"
     WARN = "warn"
@@ -341,6 +357,7 @@ class PnrAssessmentResult(BaseModel):
     ticket_candidate: PnrTicketCandidate
     pricing_authority: PnrPricingAuthority | None = None
     pricing_authority_current: bool | None = None
+    secure_flight_docs: PnrSecureFlightDocsCoverage | None = None
 
 
 class PnrWorkspaceSnapshotRecord(BaseModel):
@@ -368,6 +385,7 @@ class PnrWorkspaceResponse(BaseModel):
     ticket_candidate: PnrTicketCandidate | None = None
     pricing_authority: PnrPricingAuthority | None = None
     pricing_authority_current: bool | None = None
+    secure_flight_docs: PnrSecureFlightDocsCoverage | None = None
     pre_issue_readiness: PnrPreIssueReadiness | None = None
     ticketing_constraint: PnrTicketingConstraint | None = None
     purchase_deadline: PnrPurchaseDeadline | None = None

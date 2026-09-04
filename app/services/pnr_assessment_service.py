@@ -22,6 +22,8 @@ from app.models.pnr_workspace import (
     PnrPricingCoverageStatus,
     PnrPricingSelection,
     PnrPricingSelectionStatus,
+    PnrSecureFlightDocsCoverage,
+    PnrSecureFlightDocsStatus,
     PnrSnapshot,
     PnrTicketCandidate,
     PnrTicketCandidateStatus,
@@ -33,6 +35,9 @@ from app.services.pnr_pricing_authority_service import (
 )
 from app.services.pnr_pricing_coverage_service import assess_pnr_pricing_coverage
 from app.services.pnr_pricing_selection_service import select_pnr_pricing
+from app.services.pnr_secure_flight_docs_service import (
+    assess_pnr_secure_flight_docs,
+)
 from app.services.pnr_ticket_candidate_service import (
     build_pnr_ticket_candidate,
 )
@@ -140,6 +145,7 @@ class PnrAssessmentService:
             selection=pricing_selection,
             authority=pricing_authority,
         )
+        secure_flight_docs = assess_pnr_secure_flight_docs(snapshot)
         ticket_candidate = build_pnr_ticket_candidate(
             snapshot=snapshot,
             fare=revision.snapshot.fare,
@@ -154,6 +160,7 @@ class PnrAssessmentService:
         checks = [
             *self._segment_checks(revision.snapshot.segments, snapshot),
             *self._passenger_checks(passengers, snapshot),
+            *self._secure_flight_docs_checks(secure_flight_docs),
             *self._contact_checks(contact, snapshot),
             *self._pricing_authority_checks(authority_resolution),
             *self._pricing_checks(
@@ -202,6 +209,7 @@ class PnrAssessmentService:
             ticket_candidate=ticket_candidate,
             pricing_authority=pricing_authority,
             pricing_authority_current=authority_resolution.current,
+            secure_flight_docs=secure_flight_docs,
         )
 
     @staticmethod
@@ -335,6 +343,32 @@ class PnrAssessmentService:
                     else None
                 ),
             ),
+        ]
+
+    @staticmethod
+    def _secure_flight_docs_checks(
+        coverage: PnrSecureFlightDocsCoverage,
+    ):
+        if coverage.status == PnrSecureFlightDocsStatus.COMPLETE:
+            status = PnrCheckStatus.PASS
+        elif coverage.status == PnrSecureFlightDocsStatus.MISSING:
+            status = PnrCheckStatus.FAIL
+        else:
+            status = PnrCheckStatus.UNKNOWN
+
+        return [
+            _check(
+                "SECURE_FLIGHT_DOCS_PRESENT",
+                "DOCS / Secure Flight",
+                status,
+                blocking=True,
+                expected="DOCS HK asociado a cada pasajero",
+                actual=(
+                    f"{len(coverage.covered_name_numbers)}/"
+                    f"{coverage.passenger_count} cubiertos"
+                ),
+                message=coverage.message,
+            )
         ]
 
     @staticmethod
@@ -805,6 +839,11 @@ class PnrAssessmentService:
             code, label = (
                 PnrNextActionCode.REVIEW_PASSENGERS,
                 "Revisar pasajeros en Sabre.",
+            )
+        elif unresolved("SECURE_FLIGHT_DOCS_PRESENT"):
+            code, label = (
+                PnrNextActionCode.REVIEW_PASSENGERS,
+                "Completar/verificar DOCS / Secure Flight.",
             )
         elif unresolved("CONTACT_PRESENT"):
             code, label = (

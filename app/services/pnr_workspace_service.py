@@ -225,6 +225,7 @@ class PnrWorkspaceService:
             ticket_candidate=assessment.ticket_candidate,
             pricing_authority=assessment.pricing_authority,
             pricing_authority_current=assessment.pricing_authority_current,
+            secure_flight_docs=assessment.secure_flight_docs,
             pre_issue_readiness=pre_issue_readiness,
             ticketing_constraint=ticketing_constraint,
             purchase_deadline=purchase_deadline,

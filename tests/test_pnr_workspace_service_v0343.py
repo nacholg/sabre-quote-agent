@@ -28,6 +28,7 @@ from app.models.pnr_workspace import (
     PnrPricingSelectionStatus,
     PnrSegment,
     PnrSnapshot,
+    PnrSpecialService,
     PnrWorkspaceSnapshotRecord,
     PnrWorkspaceStatus,
 )
@@ -165,6 +166,13 @@ def _snapshot() -> PnrSnapshot:
                 kind="phone",
                 value="+541155551234",
             ),
+        ],
+        special_services=[
+            PnrSpecialService(
+                code="DOCS",
+                status="HK",
+                name_numbers=["01.01"],
+            )
         ],
     )
 

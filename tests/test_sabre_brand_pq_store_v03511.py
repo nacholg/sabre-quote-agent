@@ -1,9 +1,11 @@
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 
 from app.sabre.soap_brand_pq_store import (
     SabreBrandPqStoreError,
+    SabreSoapBrandPqStoreService,
     build_brand_price_command,
     normalize_name_number,
     parse_brand_price_screen,
@@ -96,4 +98,32 @@ def test_missing_total_fails_closed() -> None:
             screen="NO FARE FOUND",
             currency="USD",
             host_command="WPMUSD",
+        )
+
+
+def test_store_refuses_without_fresh_docs_verification() -> None:
+    service = SabreSoapBrandPqStoreService(
+        SimpleNamespace(
+            sabre_env="CERT",
+            sabre_pnr_pricing_enabled=True,
+        ),
+        client=object(),
+        session_service=object(),
+    )
+
+    with pytest.raises(
+        SabreBrandPqStoreError,
+        match="SECURE_FLIGHT_DOCS_REQUIRED",
+    ):
+        service.store(
+            "OVFOTM",
+            currency="USD",
+            brand_code="MAINFL",
+            segment_numbers=[1],
+            name_number="01.01",
+            passenger_code="ADT",
+            expected_total=Decimal("808.13"),
+            expected_segment_count=1,
+            expected_validating_carrier="AA",
+            secure_flight_docs_verified=False,
         )
