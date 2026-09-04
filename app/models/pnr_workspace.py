@@ -339,6 +339,8 @@ class PnrAssessmentResult(BaseModel):
     pricing_selection: PnrPricingSelection
     pricing_coverage: PnrPricingCoverage
     ticket_candidate: PnrTicketCandidate
+    pricing_authority: PnrPricingAuthority | None = None
+    pricing_authority_current: bool | None = None
 
 
 class PnrWorkspaceSnapshotRecord(BaseModel):
@@ -364,6 +366,8 @@ class PnrWorkspaceResponse(BaseModel):
     pricing_selection: PnrPricingSelection | None = None
     pricing_coverage: PnrPricingCoverage | None = None
     ticket_candidate: PnrTicketCandidate | None = None
+    pricing_authority: PnrPricingAuthority | None = None
+    pricing_authority_current: bool | None = None
     pre_issue_readiness: PnrPreIssueReadiness | None = None
     ticketing_constraint: PnrTicketingConstraint | None = None
     purchase_deadline: PnrPurchaseDeadline | None = None

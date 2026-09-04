@@ -25,6 +25,9 @@ def build_pnr_ticket_candidate(
     fare,
     selection: PnrPricingSelection,
     coverage: PnrPricingCoverage,
+    expected_total_override: Decimal | None = None,
+    expected_currency_override: str | None = None,
+    expected_validating_carrier_override: str | None = None,
 ) -> PnrTicketCandidate:
     """Build a read-only, explicit future ticketing candidate.
 
@@ -70,7 +73,11 @@ def build_pnr_ticket_candidate(
         blockers.append("DUPLICATE_PQ_RECORD_NUMBER")
     record_set = set(non_empty_records)
 
-    expected_currency = _upper(getattr(fare, "currency", None))
+    expected_currency = (
+        _upper(expected_currency_override)
+        if expected_currency_override is not None
+        else _upper(getattr(fare, "currency", None))
+    )
     currencies = [
         _upper(quote.total_currency)
         for quote in selection.candidates
@@ -94,7 +101,11 @@ def build_pnr_ticket_candidate(
     ):
         blockers.append("CURRENCY_MISMATCH")
 
-    expected_carrier = _upper(getattr(fare, "validating_carrier", None))
+    expected_carrier = (
+        _upper(expected_validating_carrier_override)
+        if expected_validating_carrier_override is not None
+        else _upper(getattr(fare, "validating_carrier", None))
+    )
     carriers = [
         _upper(quote.validating_carrier)
         for quote in selection.candidates
@@ -118,7 +129,11 @@ def build_pnr_ticket_candidate(
     ):
         blockers.append("VALIDATING_CARRIER_MISMATCH")
 
-    expected_total = getattr(fare, "total_price", None)
+    expected_total = (
+        expected_total_override
+        if expected_total_override is not None
+        else getattr(fare, "total_price", None)
+    )
     totals = [quote.total_amount for quote in selection.candidates]
     candidate_total: Decimal | None = None
     if expected_total is None:

@@ -201,6 +201,15 @@ class _ValueService:
         return self.value
 
 
+class _PricingAuthorityRepository:
+    def __init__(self, authority=None) -> None:
+        self.authority = authority
+
+    def latest(self, booking_id: str):
+        assert booking_id == "B-TEST"
+        return self.authority
+
+
 class _SnapshotRepository:
     def __init__(
         self,
@@ -259,6 +268,7 @@ def _service(
     booking: BookingRecord | None = None,
     reader=None,
     snapshot_repository: _SnapshotRepository | None = None,
+    pricing_authority_repository=None,
     read_attempts: int = 1,
     backoff_seconds: float = 0.0,
     sleeper=None,
@@ -272,6 +282,10 @@ def _service(
         contact_service=_ValueService(_contact()),
         snapshot_repository=(
             snapshot_repository or _SnapshotRepository()
+        ),
+        pricing_authority_repository=(
+            pricing_authority_repository
+            or _PricingAuthorityRepository()
         ),
         settings_loader=lambda environment: object(),
         reader_factory=lambda settings: (

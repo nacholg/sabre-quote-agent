@@ -17,6 +17,7 @@ from app.models.pnr_workspace import (
     PnrCheckStatus,
     PnrNextAction,
     PnrNextActionCode,
+    PnrPricingAuthority,
     PnrPricingCoverage,
     PnrPricingCoverageStatus,
     PnrPricingSelection,
@@ -25,6 +26,10 @@ from app.models.pnr_workspace import (
     PnrTicketCandidate,
     PnrTicketCandidateStatus,
     PnrWorkspaceStatus,
+)
+from app.services.pnr_pricing_authority_service import (
+    PnrPricingAuthorityResolution,
+    resolve_pnr_pricing_authority,
 )
 from app.services.pnr_pricing_coverage_service import assess_pnr_pricing_coverage
 from app.services.pnr_pricing_selection_service import select_pnr_pricing
@@ -120,6 +125,7 @@ class PnrAssessmentService:
         passengers: BookingPassengersResponse,
         contact: BookingContactRecord,
         snapshot: PnrSnapshot,
+        pricing_authority: PnrPricingAuthority | None = None,
     ) -> PnrAssessmentResult:
         revision = booking.accepted_offer_revision
         if revision is None:
@@ -127,22 +133,40 @@ class PnrAssessmentService:
 
         pricing_selection = select_pnr_pricing(snapshot)
         pricing_coverage = assess_pnr_pricing_coverage(snapshot, pricing_selection)
+        authority_resolution = resolve_pnr_pricing_authority(
+            booking_id=booking.booking_id,
+            confirmation_id=snapshot.confirmation_id,
+            fare=revision.snapshot.fare,
+            selection=pricing_selection,
+            authority=pricing_authority,
+        )
         ticket_candidate = build_pnr_ticket_candidate(
             snapshot=snapshot,
             fare=revision.snapshot.fare,
             selection=pricing_selection,
             coverage=pricing_coverage,
+            expected_total_override=authority_resolution.expected_total,
+            expected_currency_override=authority_resolution.expected_currency,
+            expected_validating_carrier_override=(
+                authority_resolution.expected_validating_carrier
+            ),
         )
         checks = [
             *self._segment_checks(revision.snapshot.segments, snapshot),
             *self._passenger_checks(passengers, snapshot),
             *self._contact_checks(contact, snapshot),
+            *self._pricing_authority_checks(authority_resolution),
             *self._pricing_checks(
                 revision.snapshot.fare,
                 snapshot,
                 pricing_selection,
                 pricing_coverage,
                 ticket_candidate,
+                expected_total=authority_resolution.expected_total,
+                expected_currency=authority_resolution.expected_currency,
+                expected_carrier=(
+                    authority_resolution.expected_validating_carrier
+                ),
             ),
             *self._ticketing_checks(snapshot),
         ]
@@ -176,6 +200,8 @@ class PnrAssessmentService:
             pricing_selection=pricing_selection,
             pricing_coverage=pricing_coverage,
             ticket_candidate=ticket_candidate,
+            pricing_authority=pricing_authority,
+            pricing_authority_current=authority_resolution.current,
         )
 
     @staticmethod
@@ -393,12 +419,64 @@ class PnrAssessmentService:
         ]
 
     @staticmethod
+    def _pricing_authority_checks(
+        resolution: PnrPricingAuthorityResolution,
+    ):
+        if resolution.authority is None:
+            return []
+        if resolution.current:
+            delta = resolution.authority.price_difference
+            direction = (
+                "incremento"
+                if delta > 0
+                else "disminución"
+                if delta < 0
+                else "sin cambio"
+            )
+            return [
+                _check(
+                    "PRICING_AUTHORITY_CURRENT",
+                    "Autoridad tarifaria vigente",
+                    PnrCheckStatus.PASS,
+                    blocking=True,
+                    expected="PQ refrescado verificado",
+                    actual=",".join(
+                        resolution.authority.price_quote_record_numbers
+                    ),
+                    message=(
+                        f"Tarifa refrescada vigente: "
+                        f"{resolution.authority.currency} "
+                        f"{resolution.authority.current_total}; "
+                        f"{direction} {delta}."
+                    ),
+                )
+            ]
+        return [
+            _check(
+                "PRICING_AUTHORITY_CURRENT",
+                "Autoridad tarifaria vigente",
+                PnrCheckStatus.FAIL,
+                blocking=True,
+                expected="autoridad coincide con PQ actual",
+                actual=",".join(resolution.blockers) or "-",
+                message=(
+                    "La autoridad tarifaria persistida ya no coincide "
+                    "inequívocamente con el pricing actual de Sabre."
+                ),
+            )
+        ]
+
+    @staticmethod
     def _pricing_checks(
         fare,
         snapshot: PnrSnapshot,
         selection: PnrPricingSelection,
         coverage: PnrPricingCoverage,
         ticket_candidate: PnrTicketCandidate,
+        *,
+        expected_total: Decimal | None,
+        expected_currency: str | None,
+        expected_carrier: str | None,
     ):
         quotes = snapshot.price_quotes
         present = bool(quotes)
@@ -418,7 +496,7 @@ class PnrAssessmentService:
             candidate_status = PnrCheckStatus.FAIL
             candidate_blocking = True
 
-        expected_currency = _upper(fare.currency)
+        expected_currency = _upper(expected_currency)
         currency_values = [
             _upper(item.total_currency)
             for item in candidates
@@ -445,7 +523,7 @@ class PnrAssessmentService:
         total: Decimal | None = None
         if (
             not selected
-            or fare.total_price is None
+            or expected_total is None
             or any(value is None for value in totals)
         ):
             price_status = PnrCheckStatus.UNKNOWN
@@ -456,11 +534,11 @@ class PnrAssessmentService:
             )
             price_status = (
                 PnrCheckStatus.PASS
-                if total == fare.total_price
+                if total == expected_total
                 else PnrCheckStatus.FAIL
             )
 
-        expected_carrier = _upper(fare.validating_carrier)
+        expected_carrier = _upper(expected_carrier)
         carrier_values = [
             _upper(item.validating_carrier)
             for item in candidates
@@ -591,7 +669,7 @@ class PnrAssessmentService:
                 "Total coincide",
                 price_status,
                 blocking=selected,
-                expected=(str(fare.total_price) if fare.total_price is not None else "-"),
+                expected=(str(expected_total) if expected_total is not None else "-"),
                 actual=str(total) if total is not None else "-",
             ),
             _check(
@@ -704,7 +782,9 @@ class PnrAssessmentService:
         by_code = {item.code: item for item in checks}
 
         def unresolved(code: str) -> bool:
-            item = by_code[code]
+            item = by_code.get(code)
+            if item is None:
+                return False
             return (
                 item.blocking
                 and item.status in _UNRESOLVED
@@ -750,6 +830,11 @@ class PnrAssessmentService:
             code, label = (
                 PnrNextActionCode.REVIEW_PRICING,
                 "Revisar cobertura de pasajeros por las PQ ACTIVE.",
+            )
+        elif unresolved("PRICING_AUTHORITY_CURRENT"):
+            code, label = (
+                PnrNextActionCode.REVIEW_PRICING,
+                "Revalidar la autoridad tarifaria contra el PQ actual.",
             )
         elif any(
             unresolved(name)

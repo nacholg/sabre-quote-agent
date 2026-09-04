@@ -24,6 +24,9 @@ from app.services.booking_repository import (
     get_booking_repository,
 )
 from app.services.pnr_assessment_service import PnrAssessmentService
+from app.services.pnr_pricing_authority_repository import (
+    PnrPricingAuthorityRepository,
+)
 from app.services.pnr_pre_issue_readiness_service import (
     build_pnr_pre_issue_readiness,
 )
@@ -71,6 +74,7 @@ class PnrWorkspaceService:
         passenger_service: BookingPassengerService | None = None,
         contact_service: BookingContactService | None = None,
         snapshot_repository: PnrWorkspaceSnapshotRepository | None = None,
+        pricing_authority_repository: PnrPricingAuthorityRepository | None = None,
         assessment_service: PnrAssessmentService | None = None,
         settings_loader: Callable[[str], Any] | None = None,
         reader_factory: Callable[[Any], Any] | None = None,
@@ -107,6 +111,12 @@ class PnrWorkspaceService:
         self.snapshot_repository = (
             snapshot_repository
             or PnrWorkspaceSnapshotRepository(
+                booking_repository=self.booking_repository
+            )
+        )
+        self.pricing_authority_repository = (
+            pricing_authority_repository
+            or PnrPricingAuthorityRepository(
                 booking_repository=self.booking_repository
             )
         )
@@ -155,11 +165,15 @@ class PnrWorkspaceService:
     ) -> PnrAssessmentResult:
         passengers = self.passenger_service.get(booking.booking_id)
         contact = self.contact_service.get(booking.booking_id)
+        pricing_authority = self.pricing_authority_repository.latest(
+            booking.booking_id
+        )
         return self.assessment_service.assess(
             booking=booking,
             passengers=passengers,
             contact=contact,
             snapshot=record.snapshot,
+            pricing_authority=pricing_authority,
         )
 
     def _response_from_record(
@@ -209,6 +223,8 @@ class PnrWorkspaceService:
             pricing_selection=assessment.pricing_selection,
             pricing_coverage=assessment.pricing_coverage,
             ticket_candidate=assessment.ticket_candidate,
+            pricing_authority=assessment.pricing_authority,
+            pricing_authority_current=assessment.pricing_authority_current,
             pre_issue_readiness=pre_issue_readiness,
             ticketing_constraint=ticketing_constraint,
             purchase_deadline=purchase_deadline,
