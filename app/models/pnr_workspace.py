@@ -215,6 +215,29 @@ class PnrSameBrandRequoteResponse(BaseModel):
     message: str | None = None
 
 
+class PnrAutomaticSameBrandRefreshStatus(StrEnum):
+    NOT_REQUIRED = "not_required"
+    BLOCKED = "blocked"
+    UPDATED = "updated"
+    FAILED_SAFE = "failed_safe"
+    RECONCILIATION_REQUIRED = "reconciliation_required"
+
+
+class PnrAutomaticSameBrandRefreshResponse(BaseModel):
+    booking_id: str
+    confirmation_id: str | None = None
+    status: PnrAutomaticSameBrandRefreshStatus
+    brand_code: str | None = None
+    source_total: Decimal | None = None
+    candidate_total: Decimal | None = None
+    current_total: Decimal | None = None
+    price_difference: Decimal | None = None
+    pricing_authority_id: int | None = None
+    sabre_mutation_performed: bool = False
+    blockers: list[str] = Field(default_factory=list)
+    message: str | None = None
+
+
 class PnrPricingAuthority(BaseModel):
     pricing_authority_id: int = Field(ge=1)
     booking_id: str
