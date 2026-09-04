@@ -300,9 +300,129 @@
     return booking?.accepted_offer_revision?.snapshot?.fare || null;
   }
 
+  function pricingDifferenceLabel(authority) {
+    if (!authority || authority.price_difference == null) return "—";
+
+    const delta = Number(authority.price_difference);
+    if (!Number.isFinite(delta)) return "—";
+
+    if (delta === 0) return "Sin cambio";
+    const direction = delta > 0 ? "Aumento" : "Disminución";
+    const formatted = money(
+      Math.abs(delta),
+      authority.currency
+    );
+    return `${direction} ${delta > 0 ? "+" : "−"}${formatted}`;
+  }
+
+  function renderPricingAuthority() {
+    const authority = workspace?.pricing_authority || null;
+    const current = workspace?.pricing_authority_current === true;
+
+    show("pricingAuthorityPanel", Boolean(authority));
+    if (!authority) return;
+
+    text(
+      "pricingAuthorityTitle",
+      current
+        ? "Tarifa operativa vigente"
+        : "Autoridad tarifaria no vigente"
+    );
+    text(
+      "pricingAuthorityBadge",
+      current ? "VIGENTE" : "NO VIGENTE"
+    );
+
+    const originalFare = money(
+      authority.original_total,
+      authority.currency
+    );
+    const currentFare = money(
+      authority.current_total,
+      authority.currency
+    );
+    const pqRecords = (authority.price_quote_record_numbers || [])
+      .map(value => `PQ ${value}`)
+      .join(" · ") || "PQ no identificada";
+    const fareBasis = (authority.fare_basis_codes || [])
+      .join(" / ") || "—";
+
+    $("pricingAuthorityBody").innerHTML = `
+      <div class="pricing-authority-change ${current ? "current" : "stale"}">
+        <div>
+          <small>Oferta aceptada original</small>
+          <strong>${esc(originalFare)}</strong>
+        </div>
+        <span class="pricing-authority-arrow" aria-hidden="true">→</span>
+        <div>
+          <small>${current ? "Tarifa operativa vigente" : "Última tarifa verificada"}</small>
+          <strong>${esc(currentFare)}</strong>
+        </div>
+      </div>
+
+      <div class="pricing-authority-delta ${Number(authority.price_difference) > 0 ? "increase" : "decrease"}">
+        ${esc(pricingDifferenceLabel(authority))}
+      </div>
+
+      <dl class="pricing-authority-kv">
+        <div>
+          <dt>Brand</dt>
+          <dd>
+            ${esc(authority.brand_name || authority.brand_code || "—")}
+            ${authority.brand_name && authority.brand_code
+              ? ` · ${esc(authority.brand_code)}`
+              : ""}
+          </dd>
+        </div>
+        <div>
+          <dt>PQ operativa</dt>
+          <dd>${esc(pqRecords)}</dd>
+        </div>
+        <div>
+          <dt>Validating carrier</dt>
+          <dd>${esc(authority.validating_carrier || "—")}</dd>
+        </div>
+        <div>
+          <dt>Fare basis</dt>
+          <dd>${esc(fareBasis)}</dd>
+        </div>
+        <div>
+          <dt>Verificada</dt>
+          <dd>${esc(fmtRetrievedAt(authority.verified_at))}</dd>
+        </div>
+      </dl>
+
+      ${
+        current
+          ? `
+            <p class="pricing-authority-note">
+              Esta tarifa reemplaza al importe original sólo como autoridad
+              operativa de ticketing. La oferta aceptada original se conserva
+              como baseline de auditoría.
+            </p>
+          `
+          : `
+            <p class="pricing-authority-note warning">
+              Esta autoridad ya no coincide exactamente con el PQ current y
+              no se usa para habilitar ticketing.
+            </p>
+          `
+      }
+    `;
+  }
+
   function renderPricing() {
     const quotes = workspace?.snapshot?.price_quotes || [];
     const fare = expectedBookingFare();
+    const authority = workspace?.pricing_authority || null;
+    const authorityCurrent = workspace?.pricing_authority_current === true;
+    const authorityRecords = new Set(
+      authorityCurrent
+        ? (authority?.price_quote_record_numbers || []).map(String)
+        : []
+    );
+
+    renderPricingAuthority();
 
     text(
       "pricingBadge",
@@ -326,11 +446,17 @@
         ? quote.fare_basis_codes.join(" / ")
         : (quote.fare_basis || "—");
       const classes = (quote.segment_booking_classes || []).join(" / ") || "—";
+      const isAuthorityRecord = authorityRecords.has(
+        String(quote.record_number || "")
+      );
 
       return `
-        <article class="pricing-card">
+        <article class="pricing-card ${isAuthorityRecord ? "pricing-card-authority" : ""}">
           <div class="pricing-card-head">
-            <strong>PQ ${esc(quote.record_number || index + 1)}</strong>
+            <strong>
+              PQ ${esc(quote.record_number || index + 1)}
+              ${isAuthorityRecord ? " · OPERATIVA" : ""}
+            </strong>
             <span>
               ${esc(money(quote.total_amount, quote.total_currency))}
             </span>
