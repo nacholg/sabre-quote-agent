@@ -119,6 +119,7 @@ class PnrAutomaticSameBrandRefreshService:
         expected_brand_code: str | None = None,
         expected_currency: str | None = None,
         expected_total: Decimal | None = None,
+        before_store=None,
     ) -> PnrAutomaticSameBrandRefreshResponse:
         booking = self.booking_repository.get(booking_id)
         if booking is None:
@@ -444,6 +445,8 @@ class PnrAutomaticSameBrandRefreshService:
             )
 
         store = self.store_factory(settings)
+        if before_store is not None:
+            before_store()
         try:
             stored = store.store(
                 locator,

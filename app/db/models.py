@@ -276,6 +276,60 @@ class BookingPnrSnapshotRow(Base):
     )
 
 
+class BookingPnrPricingRefreshAttemptRow(Base):
+    """Persistent single-flight/idempotency lifecycle for PQ refresh writes."""
+
+    __tablename__ = "booking_pnr_pricing_refresh_attempts"
+
+    pricing_refresh_attempt_id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+    booking_id: Mapped[str] = mapped_column(Text, nullable=False)
+    active_booking_id: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    client_request_id: Mapped[str] = mapped_column(Text, nullable=False)
+    confirmation_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expected_brand_code: Mapped[str] = mapped_column(Text, nullable=False)
+    expected_currency: Mapped[str] = mapped_column(Text, nullable=False)
+    expected_total: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    pricing_authority_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    result_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+    submitted_at: Mapped[str | None] = mapped_column(Text, nullable=True)
+    completed_at: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "active_booking_id",
+            name="uq_pnr_pricing_refresh_active_booking",
+        ),
+        UniqueConstraint(
+            "client_request_id",
+            name="uq_pnr_pricing_refresh_client_request",
+        ),
+        Index(
+            "idx_pnr_pricing_refresh_booking",
+            "booking_id",
+            "pricing_refresh_attempt_id",
+        ),
+        Index(
+            "idx_pnr_pricing_refresh_status",
+            "status",
+        ),
+    )
+
+
 class BookingPnrPricingAuthorityRow(Base):
     __tablename__ = "booking_pnr_pricing_authorities"
 

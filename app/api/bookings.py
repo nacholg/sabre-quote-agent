@@ -59,8 +59,11 @@ from app.services.pnr_workspace_service import (
 from app.services.pnr_same_brand_requote_service import (
     get_pnr_same_brand_requote_service,
 )
-from app.services.pnr_automatic_same_brand_refresh_service import (
-    get_pnr_automatic_same_brand_refresh_service,
+from app.services.pnr_pricing_refresh_execution_service import (
+    get_pnr_pricing_refresh_execution_service,
+)
+from app.services.pnr_pricing_refresh_attempt_service import (
+    PnrPricingRefreshAttemptIdempotencyError,
 )
 from app.services.booking_review_service import get_booking_review_service
 from app.services.booking_revalidation_service import (
@@ -399,17 +402,20 @@ async def apply_booking_pnr_fare_refresh(
         )
 
     try:
-        return await get_pnr_automatic_same_brand_refresh_service().refresh(
+        return await get_pnr_pricing_refresh_execution_service().execute(
             booking_id,
-            expected_brand_code=request.expected_brand_code,
-            expected_currency=request.expected_currency,
-            expected_total=request.expected_total,
+            request,
         )
     except KeyError:
         raise HTTPException(
             status_code=404,
             detail=f"Reserva no encontrada: {booking_id}",
         )
+    except PnrPricingRefreshAttemptIdempotencyError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
 
 
 @router.get(

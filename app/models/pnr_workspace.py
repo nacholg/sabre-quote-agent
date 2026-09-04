@@ -225,6 +225,7 @@ class PnrAutomaticSameBrandRefreshStatus(StrEnum):
 
 class PnrAutomaticSameBrandRefreshRequest(BaseModel):
     confirm_same_brand_refresh: bool = False
+    client_request_id: str
     expected_brand_code: str
     expected_currency: str
     expected_total: Decimal
@@ -243,6 +244,34 @@ class PnrAutomaticSameBrandRefreshResponse(BaseModel):
     sabre_mutation_performed: bool = False
     blockers: list[str] = Field(default_factory=list)
     message: str | None = None
+
+
+class PnrPricingRefreshAttemptStatus(StrEnum):
+    PREPARED = "prepared"
+    SUBMITTING = "submitting"
+    NO_WRITE = "no_write"
+    SUCCEEDED = "succeeded"
+    FAILED_SAFE = "failed_safe"
+    RECONCILIATION_REQUIRED = "reconciliation_required"
+
+
+class PnrPricingRefreshAttemptRecord(BaseModel):
+    pricing_refresh_attempt_id: int = Field(ge=1)
+    booking_id: str
+    client_request_id: str
+    confirmation_id: str | None = None
+    expected_brand_code: str
+    expected_currency: str
+    expected_total: Decimal
+    status: PnrPricingRefreshAttemptStatus
+    pricing_authority_id: int | None = None
+    result_json: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    created_at: str
+    updated_at: str
+    submitted_at: str | None = None
+    completed_at: str | None = None
 
 
 class PnrPricingAuthority(BaseModel):

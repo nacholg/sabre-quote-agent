@@ -57,3 +57,12 @@ def test_apply_refresh_is_not_invoked_on_page_load() -> None:
 
     assert js.count("applyFareRefresh()") == 1
     assert 'addEventListener("click", applyFareRefresh)' in js
+
+def test_apply_refresh_sends_stable_client_request_id() -> None:
+    js = JS.read_text(encoding="utf-8")
+
+    assert "let fareRefreshClientRequestId = null;" in js
+    assert "function newFareRefreshClientRequestId()" in js
+    assert "crypto.randomUUID()" in js
+    assert "client_request_id: fareRefreshClientRequestId" in js
+    assert "fareRefreshClientRequestId ||= newFareRefreshClientRequestId()" in js

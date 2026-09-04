@@ -10,11 +10,15 @@ from app.models.pnr_workspace import (
     PnrAutomaticSameBrandRefreshResponse,
     PnrAutomaticSameBrandRefreshStatus,
 )
+from app.services.pnr_pricing_refresh_attempt_service import (
+    PnrPricingRefreshAttemptIdempotencyError,
+)
 
 
 def _request(*, confirm: bool = True):
     return PnrAutomaticSameBrandRefreshRequest(
         confirm_same_brand_refresh=confirm,
+        client_request_id="req-ui-1",
         expected_brand_code="MAINFL",
         expected_currency="USD",
         expected_total=Decimal("808.13"),
@@ -37,12 +41,12 @@ def _response():
 
 def test_apply_fare_refresh_requires_explicit_confirmation(monkeypatch) -> None:
     class Service:
-        async def refresh(self, booking_id: str, **kwargs):
+        async def execute(self, booking_id: str, request):
             raise AssertionError("service must not run without confirmation")
 
     monkeypatch.setattr(
         bookings_api,
-        "get_pnr_automatic_same_brand_refresh_service",
+        "get_pnr_pricing_refresh_execution_service",
         lambda: Service(),
     )
 
@@ -57,46 +61,44 @@ def test_apply_fare_refresh_requires_explicit_confirmation(monkeypatch) -> None:
     assert exc_info.value.status_code == 409
 
 
-def test_apply_fare_refresh_passes_confirmed_candidate_identity(monkeypatch) -> None:
+def test_apply_fare_refresh_passes_whole_idempotent_request(monkeypatch) -> None:
     expected = _response()
     captured = {}
 
     class Service:
-        async def refresh(self, booking_id: str, **kwargs):
+        async def execute(self, booking_id: str, request):
             captured["booking_id"] = booking_id
-            captured.update(kwargs)
+            captured["request"] = request
             return expected
 
     monkeypatch.setattr(
         bookings_api,
-        "get_pnr_automatic_same_brand_refresh_service",
+        "get_pnr_pricing_refresh_execution_service",
         lambda: Service(),
     )
 
+    request = _request()
     actual = asyncio.run(
         bookings_api.apply_booking_pnr_fare_refresh(
             "B-TEST",
-            _request(),
+            request,
         )
     )
 
     assert actual == expected
-    assert captured == {
-        "booking_id": "B-TEST",
-        "expected_brand_code": "MAINFL",
-        "expected_currency": "USD",
-        "expected_total": Decimal("808.13"),
-    }
+    assert captured["booking_id"] == "B-TEST"
+    assert captured["request"] == request
+    assert captured["request"].client_request_id == "req-ui-1"
 
 
 def test_apply_fare_refresh_maps_missing_booking_to_404(monkeypatch) -> None:
     class Service:
-        async def refresh(self, booking_id: str, **kwargs):
+        async def execute(self, booking_id: str, request):
             raise KeyError(booking_id)
 
     monkeypatch.setattr(
         bookings_api,
-        "get_pnr_automatic_same_brand_refresh_service",
+        "get_pnr_pricing_refresh_execution_service",
         lambda: Service(),
     )
 
@@ -109,3 +111,27 @@ def test_apply_fare_refresh_maps_missing_booking_to_404(monkeypatch) -> None:
         )
 
     assert exc_info.value.status_code == 404
+
+
+def test_apply_fare_refresh_maps_idempotency_mismatch_to_409(
+    monkeypatch,
+) -> None:
+    class Service:
+        async def execute(self, booking_id: str, request):
+            raise PnrPricingRefreshAttemptIdempotencyError("request reused")
+
+    monkeypatch.setattr(
+        bookings_api,
+        "get_pnr_pricing_refresh_execution_service",
+        lambda: Service(),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(
+            bookings_api.apply_booking_pnr_fare_refresh(
+                "B-TEST",
+                _request(),
+            )
+        )
+
+    assert exc_info.value.status_code == 409

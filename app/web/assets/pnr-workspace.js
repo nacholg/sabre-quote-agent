@@ -16,6 +16,7 @@
   let fareRefreshAttempted = false;
   let fareRefreshApplying = false;
   let fareRefreshApplyResult = null;
+  let fareRefreshClientRequestId = null;
 
   function esc(value) {
     return String(value ?? "")
@@ -1381,6 +1382,13 @@
     return data;
   }
 
+  function newFareRefreshClientRequestId() {
+    if (globalThis.crypto?.randomUUID) {
+      return globalThis.crypto.randomUUID();
+    }
+    return `pricing-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
   async function applyFareRefresh() {
     if (
       fareRefreshApplying ||
@@ -1409,6 +1417,7 @@
     );
     if (!confirmed) return;
 
+    fareRefreshClientRequestId ||= newFareRefreshClientRequestId();
     fareRefreshApplying = true;
     fareRefreshApplyResult = null;
     renderFareRefresh();
@@ -1419,6 +1428,7 @@
         `/bookings/${encodeURIComponent(bookingId)}/pnr-fare-refresh/apply`,
         {
           confirm_same_brand_refresh: true,
+          client_request_id: fareRefreshClientRequestId,
           expected_brand_code: fareRefresh.candidate_brand_code,
           expected_currency: fareRefresh.candidate_currency,
           expected_total: fareRefresh.candidate_total,
@@ -1480,6 +1490,7 @@
       fareRefresh = null;
       fareRefreshAttempted = false;
       fareRefreshApplyResult = null;
+      fareRefreshClientRequestId = null;
       renderWorkspace();
       show("workspaceLoading", false);
       show("pnrWorkspace", true);
