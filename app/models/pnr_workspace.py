@@ -215,6 +215,24 @@ class PnrSameBrandRequoteResponse(BaseModel):
     message: str | None = None
 
 
+class PnrPricingAuthority(BaseModel):
+    pricing_authority_id: int = Field(ge=1)
+    booking_id: str
+    confirmation_id: str
+    price_quote_record_numbers: list[str] = Field(default_factory=list)
+    brand_code: str
+    brand_name: str | None = None
+    original_total: Decimal
+    current_total: Decimal
+    currency: str
+    price_difference: Decimal
+    validating_carrier: str | None = None
+    fare_basis_codes: list[str] = Field(default_factory=list)
+    purchase_deadline_raw: str | None = None
+    provider: str
+    verified_at: str
+
+
 class PnrFinalPreIssueGateStatus(StrEnum):
     READY = "ready"
     BLOCKED = "blocked"

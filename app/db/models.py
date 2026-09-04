@@ -276,6 +276,47 @@ class BookingPnrSnapshotRow(Base):
     )
 
 
+class BookingPnrPricingAuthorityRow(Base):
+    __tablename__ = "booking_pnr_pricing_authorities"
+
+    pricing_authority_id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+    booking_id: Mapped[str] = mapped_column(Text, nullable=False)
+    confirmation_id: Mapped[str] = mapped_column(Text, nullable=False)
+    price_quote_record_numbers_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+    brand_code: Mapped[str] = mapped_column(Text, nullable=False)
+    brand_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    original_total: Mapped[str] = mapped_column(Text, nullable=False)
+    current_total: Mapped[str] = mapped_column(Text, nullable=False)
+    currency: Mapped[str] = mapped_column(Text, nullable=False)
+    price_difference: Mapped[str] = mapped_column(Text, nullable=False)
+    validating_carrier: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    fare_basis_codes_json: Mapped[str] = mapped_column(Text, nullable=False)
+    purchase_deadline_raw: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    verified_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        Index(
+            "idx_booking_pnr_pricing_authority_booking",
+            "booking_id",
+            "pricing_authority_id",
+        ),
+    )
+
+
 class QuoteArtifactRow(Base):
     __tablename__ = "quote_artifacts"
 

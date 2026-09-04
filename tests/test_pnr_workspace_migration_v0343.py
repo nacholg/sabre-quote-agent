@@ -38,7 +38,7 @@ def test_pnr_workspace_snapshot_migration_from_pnr_attempt(
     engine = create_engine(database_url)
     inspector = inspect(engine)
     assert inspector.has_table("booking_pnr_snapshots")
-    assert _version(engine) == "20260901_06"
+    assert _version(engine) == "20260904_07"
 
     columns = {
         item["name"]
