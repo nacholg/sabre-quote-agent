@@ -373,8 +373,12 @@ def _parse_price_quotes(itinerary_info: ET.Element | None) -> list[PnrPriceQuote
             ]
         )
 
+        price_quote_plus = _first_child(
+            price_quote,
+            "PriceQuotePlus",
+        )
         passenger_info = _first_descendant(
-            _first_child(price_quote, "PriceQuotePlus"),
+            price_quote_plus,
             "PassengerInfo",
         )
         passenger_name_numbers = _unique(
@@ -417,32 +421,95 @@ def _parse_price_quotes(itinerary_info: ET.Element | None) -> list[PnrPriceQuote
                 fare_basis=fare_basis,
                 fare_basis_codes=fare_basis_codes,
                 segment_booking_classes=segment_booking_classes,
+                purchase_deadline_raw=next(
+                    (
+                        value
+                        for value in _unique(
+                            [
+                                _text(node)
+                                for node in _descendants(
+                                    price_quote,
+                                    "ResTicketingRestrictions",
+                                )
+                            ]
+                        )
+                        if value.upper().startswith(
+                            "LAST DAY TO PURCHASE "
+                        )
+                    ),
+                    None,
+                ),
+                itinerary_changed=_bool_attr(
+                    price_quote_plus,
+                    "ItineraryChanged",
+                ),
             )
         )
     return result
+
+
+def _ticketing_arrangement_type(value: str | None) -> str | None:
+    normalized = str(value or "").strip().upper()
+    if not normalized:
+        return None
+    for code in ("TAW", "TAX", "TAU", "T-A"):
+        if normalized.startswith(code):
+            return code
+    return None
 
 
 def _parse_ticketing(
     travel_itinerary: ET.Element,
     special_services: list[PnrSpecialService],
 ) -> PnrTicketing:
+    itinerary_info = _first_child(travel_itinerary, "ItineraryInfo")
+    itinerary_ticketing = _first_child(itinerary_info, "Ticketing")
+
+    # Older/alternate TIR payloads and our historical fixtures may also expose
+    # Ticketing under AgencyInfo. ItineraryInfo is authoritative for the
+    # actual TIR 3.10 shape observed in CERT; AgencyInfo remains a fallback.
     agency_info = _first_child(travel_itinerary, "AgencyInfo")
-    ticketing = _first_child(agency_info, "Ticketing")
+    agency_ticketing = _first_child(agency_info, "Ticketing")
+    ticketing = (
+        itinerary_ticketing
+        if itinerary_ticketing is not None
+        else agency_ticketing
+    )
+
+    arrangement_raw = _attr(itinerary_ticketing, "TicketTimeLimit")
+    if arrangement_raw is None:
+        arrangement_raw = _attr(agency_ticketing, "TicketTimeLimit")
+
+    ticket_type = _attr(ticketing, "TicketType")
+    if ticket_type is None:
+        ticket_type = _attr(agency_ticketing, "TicketType")
+
+    ticketing_text = _text(ticketing)
+    if ticketing_text is None:
+        ticketing_text = _text(agency_ticketing)
+
     advisory = next(
         (service for service in special_services if service.code == "ADTK"),
         None,
     )
 
     return PnrTicketing(
-        ticket_type=_attr(ticketing, "TicketType"),
-        ticketing_text=_text(ticketing),
+        ticket_type=ticket_type,
+        ticketing_text=ticketing_text,
+        arrangement_raw=arrangement_raw,
+        arrangement_type=_ticketing_arrangement_type(arrangement_raw),
+        arrangement_rph=_attr(itinerary_ticketing, "RPH")
+        or _attr(agency_ticketing, "RPH"),
         advisory_present=advisory is not None,
         advisory_code=advisory.code if advisory is not None else None,
         advisory_status=advisory.status if advisory is not None else None,
         advisory_airline_code=(
             advisory.airline_code if advisory is not None else None
         ),
-        # v0.34.1 does not invent a deadline from unstructured SSR free text.
+        # TicketTimeLimit can contain a Sabre ticketing-arrangement value such
+        # as TAW/. It is not safe to reinterpret that agency workflow field as
+        # an airline-imposed ticketing deadline. ADTK free text is likewise
+        # deliberately not parsed here.
         deadline_at=None,
     )
 

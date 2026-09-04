@@ -24,6 +24,21 @@ from app.services.booking_repository import (
     get_booking_repository,
 )
 from app.services.pnr_assessment_service import PnrAssessmentService
+from app.services.pnr_pricing_authority_repository import (
+    PnrPricingAuthorityRepository,
+)
+from app.services.pnr_pre_issue_readiness_service import (
+    build_pnr_pre_issue_readiness,
+)
+from app.services.pnr_purchase_deadline_service import (
+    build_pnr_purchase_deadline,
+)
+from app.services.pnr_final_pre_issue_gate_service import (
+    build_pnr_final_pre_issue_gate,
+)
+from app.services.pnr_ticketing_constraint_service import (
+    interpret_pnr_ticketing_constraint,
+)
 from app.services.pnr_workspace_snapshot_repository import (
     PnrWorkspaceSnapshotRepository,
 )
@@ -59,6 +74,7 @@ class PnrWorkspaceService:
         passenger_service: BookingPassengerService | None = None,
         contact_service: BookingContactService | None = None,
         snapshot_repository: PnrWorkspaceSnapshotRepository | None = None,
+        pricing_authority_repository: PnrPricingAuthorityRepository | None = None,
         assessment_service: PnrAssessmentService | None = None,
         settings_loader: Callable[[str], Any] | None = None,
         reader_factory: Callable[[Any], Any] | None = None,
@@ -95,6 +111,12 @@ class PnrWorkspaceService:
         self.snapshot_repository = (
             snapshot_repository
             or PnrWorkspaceSnapshotRepository(
+                booking_repository=self.booking_repository
+            )
+        )
+        self.pricing_authority_repository = (
+            pricing_authority_repository
+            or PnrPricingAuthorityRepository(
                 booking_repository=self.booking_repository
             )
         )
@@ -143,11 +165,15 @@ class PnrWorkspaceService:
     ) -> PnrAssessmentResult:
         passengers = self.passenger_service.get(booking.booking_id)
         contact = self.contact_service.get(booking.booking_id)
+        pricing_authority = self.pricing_authority_repository.latest(
+            booking.booking_id
+        )
         return self.assessment_service.assess(
             booking=booking,
             passengers=passengers,
             contact=contact,
             snapshot=record.snapshot,
+            pricing_authority=pricing_authority,
         )
 
     def _response_from_record(
@@ -161,20 +187,49 @@ class PnrWorkspaceService:
         read_error_message: str | None = None,
     ) -> PnrWorkspaceResponse:
         assessment = self._assessment(booking, record)
+        final_status = status_override or assessment.assessment.status
+        pre_issue_readiness = build_pnr_pre_issue_readiness(
+            confirmation_id=record.confirmation_id,
+            retrieved_at=record.retrieved_at,
+            stale=stale,
+            workspace_status=final_status,
+            read_error_code=read_error_code,
+            assessment=assessment.assessment,
+            ticket_candidate=assessment.ticket_candidate,
+        )
+        ticketing_constraint = interpret_pnr_ticketing_constraint(
+            record.snapshot.ticketing
+        )
+        purchase_deadline = build_pnr_purchase_deadline(
+            assessment.pricing_selection
+        )
+        final_pre_issue_gate = build_pnr_final_pre_issue_gate(
+            confirmation_id=record.confirmation_id,
+            pre_issue_readiness=pre_issue_readiness,
+            ticketing_constraint=ticketing_constraint,
+            purchase_deadline=purchase_deadline,
+        )
         return PnrWorkspaceResponse(
             booking_id=booking.booking_id,
             confirmation_id=record.confirmation_id,
             provider=record.provider,
             environment=booking.environment,
-            status=(
-                status_override
-                or assessment.assessment.status
-            ),
+            status=final_status,
             retrieved_at=record.retrieved_at,
             stale=stale,
             snapshot=record.snapshot,
             assessment=assessment.assessment,
             next_action=assessment.next_action,
+            pricing_selection=assessment.pricing_selection,
+            pricing_coverage=assessment.pricing_coverage,
+            ticket_candidate=assessment.ticket_candidate,
+            pricing_authority=assessment.pricing_authority,
+            pricing_authority_current=assessment.pricing_authority_current,
+            secure_flight_docs=assessment.secure_flight_docs,
+            pre_issue_readiness=pre_issue_readiness,
+            ticketing_constraint=ticketing_constraint,
+            purchase_deadline=purchase_deadline,
+            final_pre_issue_gate=final_pre_issue_gate,
             read_error_code=read_error_code,
             read_error_message=read_error_message,
         )
@@ -202,6 +257,20 @@ class PnrWorkspaceService:
                 read_error_message=_READ_ERROR_MESSAGE,
             )
 
+        pre_issue_readiness = build_pnr_pre_issue_readiness(
+            confirmation_id=confirmation_id,
+            retrieved_at=None,
+            stale=False,
+            workspace_status=PnrWorkspaceStatus.READ_ERROR,
+            read_error_code=code,
+            assessment=None,
+            ticket_candidate=None,
+        )
+        final_pre_issue_gate = build_pnr_final_pre_issue_gate(
+            confirmation_id=confirmation_id,
+            pre_issue_readiness=pre_issue_readiness,
+            ticketing_constraint=None,
+        )
         return PnrWorkspaceResponse(
             booking_id=booking.booking_id,
             confirmation_id=confirmation_id,
@@ -213,6 +282,8 @@ class PnrWorkspaceService:
             snapshot=None,
             assessment=None,
             next_action=None,
+            pre_issue_readiness=pre_issue_readiness,
+            final_pre_issue_gate=final_pre_issue_gate,
             read_error_code=code,
             read_error_message=_READ_ERROR_MESSAGE,
         )

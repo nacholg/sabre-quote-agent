@@ -24,8 +24,11 @@ from app.models.pnr_workspace import (
     PnrContact,
     PnrNextActionCode,
     PnrPassenger,
+    PnrPricingCoverageStatus,
+    PnrPricingSelectionStatus,
     PnrSegment,
     PnrSnapshot,
+    PnrSpecialService,
     PnrWorkspaceSnapshotRecord,
     PnrWorkspaceStatus,
 )
@@ -164,6 +167,13 @@ def _snapshot() -> PnrSnapshot:
                 value="+541155551234",
             ),
         ],
+        special_services=[
+            PnrSpecialService(
+                code="DOCS",
+                status="HK",
+                name_numbers=["01.01"],
+            )
+        ],
     )
 
 
@@ -197,6 +207,15 @@ class _ValueService:
     def get(self, booking_id: str):
         assert booking_id == "B-TEST"
         return self.value
+
+
+class _PricingAuthorityRepository:
+    def __init__(self, authority=None) -> None:
+        self.authority = authority
+
+    def latest(self, booking_id: str):
+        assert booking_id == "B-TEST"
+        return self.authority
 
 
 class _SnapshotRepository:
@@ -257,6 +276,7 @@ def _service(
     booking: BookingRecord | None = None,
     reader=None,
     snapshot_repository: _SnapshotRepository | None = None,
+    pricing_authority_repository=None,
     read_attempts: int = 1,
     backoff_seconds: float = 0.0,
     sleeper=None,
@@ -270,6 +290,10 @@ def _service(
         contact_service=_ValueService(_contact()),
         snapshot_repository=(
             snapshot_repository or _SnapshotRepository()
+        ),
+        pricing_authority_repository=(
+            pricing_authority_repository
+            or _PricingAuthorityRepository()
         ),
         settings_loader=lambda environment: object(),
         reader_factory=lambda settings: (
@@ -296,6 +320,10 @@ def test_successful_sync_persists_and_assesses_real_pnr() -> None:
     assert response.next_action.code == (
         PnrNextActionCode.STORE_OR_VERIFY_PRICING
     )
+    assert response.pricing_selection is not None
+    assert response.pricing_selection.status == PnrPricingSelectionStatus.MISSING
+    assert response.pricing_coverage is not None
+    assert response.pricing_coverage.status == PnrPricingCoverageStatus.UNKNOWN
     assert response.read_error_code is None
 
 

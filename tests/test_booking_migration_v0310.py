@@ -52,5 +52,5 @@ def test_booking_foundation_alembic_upgrade_from_booking_draft(
     assert expected_booking_tables.issubset(
         set(inspector.get_table_names())
     )
-    assert _database_version(engine) == "20260901_06"
+    assert _database_version(engine) == "20260904_08"
     engine.dispose()

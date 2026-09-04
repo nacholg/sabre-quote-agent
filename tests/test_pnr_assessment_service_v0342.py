@@ -21,14 +21,27 @@ from app.models.pnr_workspace import (
     PnrContact,
     PnrNextActionCode,
     PnrPassenger,
+    PnrPricingCoverageStatus,
+    PnrPricingSelectionStatus,
     PnrPriceQuote,
     PnrSegment,
     PnrSnapshot,
+    PnrSpecialService,
+    PnrTicketCandidateStatus,
     PnrTicketing,
     PnrWorkspaceStatus,
 )
 from app.models.quote_request import PassengerKind, PassengerSpec
 from app.services.pnr_assessment_service import PnrAssessmentService
+from app.services.pnr_final_pre_issue_gate_service import (
+    build_pnr_final_pre_issue_gate,
+)
+from app.services.pnr_pre_issue_readiness_service import (
+    build_pnr_pre_issue_readiness,
+)
+from app.services.pnr_ticketing_constraint_service import (
+    interpret_pnr_ticketing_constraint,
+)
 
 
 def _booking() -> BookingRecord:
@@ -131,6 +144,7 @@ def _snapshot(
     phone: str = "+541155551234",
     advisory: bool = False,
     passenger_type: str | None = "ADT",
+    itinerary_changed: bool | None = False,
 ) -> PnrSnapshot:
     return PnrSnapshot(
         confirmation_id="OVFOTM",
@@ -170,11 +184,14 @@ def _snapshot(
             [
                 PnrPriceQuote(
                     record_number="1",
+                    status="ACTIVE",
                     validating_carrier="AA",
                     passenger_type="ADT",
                     passenger_quantity=1,
+                    passenger_name_numbers=["01.01"],
                     total_amount=price,
                     total_currency="USD",
+                    itinerary_changed=itinerary_changed,
                 )
             ]
             if with_price
@@ -186,6 +203,13 @@ def _snapshot(
             advisory_status="KK" if advisory else None,
             advisory_airline_code="1S" if advisory else None,
         ),
+        special_services=[
+            PnrSpecialService(
+                code="DOCS",
+                status="HK",
+                name_numbers=["01.01"],
+            )
+        ],
     )
 
 
@@ -267,6 +291,51 @@ def test_non_hk_segment_requires_itinerary_review() -> None:
     assert result.next_action.code == PnrNextActionCode.REVIEW_ITINERARY
 
 
+def test_hx_segment_hard_blocks_pre_issue_even_with_ready_ticket_candidate() -> None:
+    snapshot = _snapshot(
+        segment_status="HX",
+        advisory=True,
+    )
+    result = _result(snapshot)
+
+    assert result.assessment.status == PnrWorkspaceStatus.NEEDS_ATTENTION
+    assert _check(result, "SEGMENTS_MATCH").status == PnrCheckStatus.PASS
+    assert _check(result, "SEGMENTS_CONFIRMED").status == PnrCheckStatus.FAIL
+    assert _check(result, "SEGMENTS_CONFIRMED").blocking is True
+    assert _check(result, "TICKET_CANDIDATE_READY").status == PnrCheckStatus.PASS
+    assert result.ticket_candidate.status.value == "ready"
+    assert result.next_action.code == PnrNextActionCode.REVIEW_ITINERARY
+
+    readiness = build_pnr_pre_issue_readiness(
+        confirmation_id=snapshot.confirmation_id,
+        retrieved_at="2026-09-04T13:18:48+00:00",
+        stale=False,
+        workspace_status=result.assessment.status,
+        read_error_code=None,
+        assessment=result.assessment,
+        ticket_candidate=result.ticket_candidate,
+    )
+
+    assert readiness.status.value == "blocked"
+    assert readiness.fresh_remote_read is True
+    assert readiness.blockers == ["WORKSPACE_NOT_READY"]
+
+    constraint = interpret_pnr_ticketing_constraint(snapshot.ticketing)
+    assert constraint.status.value == "advisory_without_deadline"
+
+    final_gate = build_pnr_final_pre_issue_gate(
+        confirmation_id=snapshot.confirmation_id,
+        pre_issue_readiness=readiness,
+        ticketing_constraint=constraint,
+    )
+
+    assert final_gate.status.value == "blocked"
+    assert final_gate.blockers == [
+        "PRE_ISSUE_NOT_READY",
+        "TICKETING_DEADLINE_UNRESOLVED",
+    ]
+
+
 def test_price_mismatch_requires_pricing_review() -> None:
     result = _result(
         _snapshot(
@@ -307,3 +376,93 @@ def test_known_passenger_type_mismatch_requires_passenger_review() -> None:
     )
     assert result.assessment.status == PnrWorkspaceStatus.NEEDS_ATTENTION
     assert result.next_action.code == PnrNextActionCode.REVIEW_PASSENGERS
+
+
+def test_non_active_pq_is_excluded_from_pricing_comparison() -> None:
+    snapshot = _snapshot()
+    snapshot.price_quotes.append(
+        PnrPriceQuote(
+            record_number="2",
+            status="HISTORICAL",
+            validating_carrier="AA",
+            passenger_type="ADT",
+            passenger_quantity=1,
+            total_amount=Decimal("999.99"),
+            total_currency="USD",
+        )
+    )
+
+    result = _result(snapshot)
+
+    assert result.pricing_selection.status == PnrPricingSelectionStatus.SELECTED
+    assert result.pricing_selection.candidate_record_numbers == ["1"]
+    assert result.pricing_selection.total_quote_count == 2
+    assert result.pricing_selection.candidate_quote_count == 1
+    assert result.pricing_selection.excluded_quote_count == 1
+    assert _check(result, "ACTIVE_PRICING_SELECTED").status == PnrCheckStatus.PASS
+    assert _check(result, "PRICE_MATCH").status == PnrCheckStatus.PASS
+    assert result.assessment.status == PnrWorkspaceStatus.READY_FOR_TICKETING
+
+
+def test_only_non_active_pq_requires_pricing_review() -> None:
+    snapshot = _snapshot()
+    snapshot.price_quotes[0].status = "HISTORICAL"
+
+    result = _result(snapshot)
+
+    assert result.pricing_selection.status == PnrPricingSelectionStatus.NO_ACTIVE
+    assert _check(result, "PRICING_PRESENT").status == PnrCheckStatus.PASS
+    assert _check(result, "ACTIVE_PRICING_SELECTED").status == PnrCheckStatus.FAIL
+    assert _check(result, "CURRENCY_MATCH").status == PnrCheckStatus.UNKNOWN
+    assert _check(result, "PRICE_MATCH").status == PnrCheckStatus.UNKNOWN
+    assert result.assessment.status == PnrWorkspaceStatus.NEEDS_ATTENTION
+    assert result.next_action.code == PnrNextActionCode.REVIEW_PRICING
+
+def test_active_pq_without_name_association_blocks_ticketing() -> None:
+    snapshot = _snapshot()
+    snapshot.price_quotes[0].passenger_name_numbers = []
+    result = _result(snapshot)
+    assert result.pricing_coverage.status == PnrPricingCoverageStatus.UNKNOWN
+    assert _check(result, "PRICING_PASSENGER_COVERAGE").status == PnrCheckStatus.UNKNOWN
+    assert result.assessment.status == PnrWorkspaceStatus.NEEDS_ATTENTION
+    assert result.next_action.code == PnrNextActionCode.REVIEW_PRICING
+
+
+def test_active_pq_wrong_passenger_association_blocks_ticketing() -> None:
+    snapshot = _snapshot()
+    snapshot.price_quotes[0].passenger_name_numbers = ["09.09"]
+    result = _result(snapshot)
+    assert result.pricing_coverage.status == PnrPricingCoverageStatus.CONFLICT
+    assert _check(result, "PRICING_PASSENGER_COVERAGE").status == PnrCheckStatus.FAIL
+    assert result.next_action.code == PnrNextActionCode.REVIEW_PRICING
+
+
+def test_itinerary_changed_requires_repricing_and_blocks_candidate() -> None:
+    result = _result(
+        _snapshot(
+            itinerary_changed=True,
+        )
+    )
+
+    check = _check(result, "PRICING_ITINERARY_CURRENT")
+    assert check.status == PnrCheckStatus.FAIL
+    assert check.blocking is True
+    assert result.ticket_candidate.status == PnrTicketCandidateStatus.BLOCKED
+    assert result.ticket_candidate.blockers == ["PQ_ITINERARY_CHANGED"]
+    assert result.assessment.status == PnrWorkspaceStatus.NEEDS_ATTENTION
+    assert result.next_action.code == PnrNextActionCode.REPRICE_REQUIRED
+
+
+def test_unknown_itinerary_change_flag_fails_closed() -> None:
+    result = _result(
+        _snapshot(
+            itinerary_changed=None,
+        )
+    )
+
+    check = _check(result, "PRICING_ITINERARY_CURRENT")
+    assert check.status == PnrCheckStatus.UNKNOWN
+    assert check.blocking is True
+    assert result.ticket_candidate.status == PnrTicketCandidateStatus.BLOCKED
+    assert "PQ_ITINERARY_CHANGE_UNKNOWN" in result.ticket_candidate.blockers
+    assert result.next_action.code == PnrNextActionCode.REPRICE_REQUIRED

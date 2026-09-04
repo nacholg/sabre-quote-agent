@@ -11,6 +11,12 @@
   let booking = null;
   let workspace = null;
   let loading = false;
+  let fareRefresh = null;
+  let fareRefreshLoading = false;
+  let fareRefreshAttempted = false;
+  let fareRefreshApplying = false;
+  let fareRefreshApplyResult = null;
+  let fareRefreshClientRequestId = null;
 
   function esc(value) {
     return String(value ?? "")
@@ -80,7 +86,7 @@
 
   function stateLabel(status) {
     return {
-      ready_for_ticketing: "Lista para emitir",
+      ready_for_ticketing: "PNR verificado",
       needs_attention: "Requiere atención",
       read_error: "Verificación pendiente",
       verified: "Verificada",
@@ -295,9 +301,129 @@
     return booking?.accepted_offer_revision?.snapshot?.fare || null;
   }
 
+  function pricingDifferenceLabel(authority) {
+    if (!authority || authority.price_difference == null) return "—";
+
+    const delta = Number(authority.price_difference);
+    if (!Number.isFinite(delta)) return "—";
+
+    if (delta === 0) return "Sin cambio";
+    const direction = delta > 0 ? "Aumento" : "Disminución";
+    const formatted = money(
+      Math.abs(delta),
+      authority.currency
+    );
+    return `${direction} ${delta > 0 ? "+" : "−"}${formatted}`;
+  }
+
+  function renderPricingAuthority() {
+    const authority = workspace?.pricing_authority || null;
+    const current = workspace?.pricing_authority_current === true;
+
+    show("pricingAuthorityPanel", Boolean(authority));
+    if (!authority) return;
+
+    text(
+      "pricingAuthorityTitle",
+      current
+        ? "Tarifa operativa vigente"
+        : "Autoridad tarifaria no vigente"
+    );
+    text(
+      "pricingAuthorityBadge",
+      current ? "VIGENTE" : "NO VIGENTE"
+    );
+
+    const originalFare = money(
+      authority.original_total,
+      authority.currency
+    );
+    const currentFare = money(
+      authority.current_total,
+      authority.currency
+    );
+    const pqRecords = (authority.price_quote_record_numbers || [])
+      .map(value => `PQ ${value}`)
+      .join(" · ") || "PQ no identificada";
+    const fareBasis = (authority.fare_basis_codes || [])
+      .join(" / ") || "—";
+
+    $("pricingAuthorityBody").innerHTML = `
+      <div class="pricing-authority-change ${current ? "current" : "stale"}">
+        <div>
+          <small>Oferta aceptada original</small>
+          <strong>${esc(originalFare)}</strong>
+        </div>
+        <span class="pricing-authority-arrow" aria-hidden="true">→</span>
+        <div>
+          <small>${current ? "Tarifa operativa vigente" : "Última tarifa verificada"}</small>
+          <strong>${esc(currentFare)}</strong>
+        </div>
+      </div>
+
+      <div class="pricing-authority-delta ${Number(authority.price_difference) > 0 ? "increase" : "decrease"}">
+        ${esc(pricingDifferenceLabel(authority))}
+      </div>
+
+      <dl class="pricing-authority-kv">
+        <div>
+          <dt>Brand</dt>
+          <dd>
+            ${esc(authority.brand_name || authority.brand_code || "—")}
+            ${authority.brand_name && authority.brand_code
+              ? ` · ${esc(authority.brand_code)}`
+              : ""}
+          </dd>
+        </div>
+        <div>
+          <dt>PQ operativa</dt>
+          <dd>${esc(pqRecords)}</dd>
+        </div>
+        <div>
+          <dt>Validating carrier</dt>
+          <dd>${esc(authority.validating_carrier || "—")}</dd>
+        </div>
+        <div>
+          <dt>Fare basis</dt>
+          <dd>${esc(fareBasis)}</dd>
+        </div>
+        <div>
+          <dt>Verificada</dt>
+          <dd>${esc(fmtRetrievedAt(authority.verified_at))}</dd>
+        </div>
+      </dl>
+
+      ${
+        current
+          ? `
+            <p class="pricing-authority-note">
+              Esta tarifa reemplaza al importe original sólo como autoridad
+              operativa de ticketing. La oferta aceptada original se conserva
+              como baseline de auditoría.
+            </p>
+          `
+          : `
+            <p class="pricing-authority-note warning">
+              Esta autoridad ya no coincide exactamente con el PQ current y
+              no se usa para habilitar ticketing.
+            </p>
+          `
+      }
+    `;
+  }
+
   function renderPricing() {
     const quotes = workspace?.snapshot?.price_quotes || [];
     const fare = expectedBookingFare();
+    const authority = workspace?.pricing_authority || null;
+    const authorityCurrent = workspace?.pricing_authority_current === true;
+    const authorityRecords = new Set(
+      authorityCurrent
+        ? (authority?.price_quote_record_numbers || []).map(String)
+        : []
+    );
+
+    renderPricingAuthority();
 
     text(
       "pricingBadge",
@@ -321,11 +447,17 @@
         ? quote.fare_basis_codes.join(" / ")
         : (quote.fare_basis || "—");
       const classes = (quote.segment_booking_classes || []).join(" / ") || "—";
+      const isAuthorityRecord = authorityRecords.has(
+        String(quote.record_number || "")
+      );
 
       return `
-        <article class="pricing-card">
+        <article class="pricing-card ${isAuthorityRecord ? "pricing-card-authority" : ""}">
           <div class="pricing-card-head">
-            <strong>PQ ${esc(quote.record_number || index + 1)}</strong>
+            <strong>
+              PQ ${esc(quote.record_number || index + 1)}
+              ${isAuthorityRecord ? " · OPERATIVA" : ""}
+            </strong>
             <span>
               ${esc(money(quote.total_amount, quote.total_currency))}
             </span>
@@ -333,7 +465,10 @@
           <dl>
             <div>
               <dt>Estado</dt>
-              <dd>${esc(quote.status || "—")}</dd>
+              <dd>
+                ${esc(quote.status || "—")}
+                ${quote.itinerary_changed === true ? " · ITIN CHG" : ""}
+              </dd>
             </div>
             <div>
               <dt>Validating carrier</dt>
@@ -362,6 +497,318 @@
         </article>
       `;
     }).join("");
+  }
+
+  function needsFareRefresh() {
+    if (
+      !workspace?.snapshot ||
+      workspace?.stale === true ||
+      workspace?.read_error_code
+    ) {
+      return false;
+    }
+
+    const itineraryChanged = (
+      workspace?.pricing_selection?.candidates || []
+    ).some(quote => quote.itinerary_changed === true);
+
+    const purchaseExpired = (
+      workspace?.purchase_deadline?.status === "expired"
+    );
+
+    return itineraryChanged || purchaseExpired;
+  }
+
+  function fareRefreshReasonLabel(reason) {
+    return {
+      PQ_ITINERARY_CHANGED: "El itinerario cambió desde el pricing original",
+      PURCHASE_DEADLINE_EXPIRED: "La tarifa almacenada superó su vencimiento",
+    }[reason] || reason;
+  }
+
+  function renderFareRefreshAction() {
+    const host = $("fareRefreshAction");
+    if (!host) return;
+
+    if (fareRefresh?.status !== "found") {
+      host.innerHTML = "";
+      show("fareRefreshAction", false);
+      return;
+    }
+
+    show("fareRefreshAction", true);
+
+    if (fareRefreshApplying) {
+      host.innerHTML = `
+        <div class="data-item">
+          <strong>Guardando nueva PQ same-brand…</strong>
+          <small>
+            No cierres ni repitas la acción. Esperando confirmación y
+            reconciliación desde Sabre.
+          </small>
+        </div>
+      `;
+      return;
+    }
+
+    if (fareRefreshApplyResult) {
+      const result = fareRefreshApplyResult;
+      if (result.status === "reconciliation_required") {
+        host.innerHTML = `
+          <div class="fare-refresh-alert danger">
+            <strong>Reconciliación requerida</strong>
+            <small>
+              ${esc(
+                result.message ||
+                "Sabre pudo haber procesado el pricing, pero el resultado no quedó verificado."
+              )}
+              No reintentar automáticamente. Actualizá desde Sabre y revisá el PNR.
+            </small>
+          </div>
+        `;
+        return;
+      }
+
+      if (result.status === "failed_safe") {
+        host.innerHTML = `
+          <div class="fare-refresh-alert warning">
+            <strong>Actualización cancelada de forma segura</strong>
+            <small>
+              ${esc(result.message || "No se registró una nueva Pricing Authority.")}
+            </small>
+          </div>
+        `;
+        return;
+      }
+
+      if (result.status === "blocked") {
+        host.innerHTML = `
+          <div class="fare-refresh-alert warning">
+            <strong>Actualización bloqueada</strong>
+            <small>
+              ${esc(result.message || "No se modificó el pricing del PNR.")}
+            </small>
+            ${
+              (result.blockers || []).length
+                ? `<small>Bloqueo: ${esc(result.blockers.join(" · "))}</small>`
+                : ""
+            }
+          </div>
+        `;
+        return;
+      }
+
+      host.innerHTML = `
+        <div class="fare-refresh-alert warning">
+          <strong>No se pudo completar la actualización</strong>
+          <small>${esc(result.message || "Revisá el estado actual antes de reintentar.")}</small>
+        </div>
+      `;
+      return;
+    }
+
+    host.innerHTML = `
+      <button
+        id="applyFareRefreshButton"
+        class="fare-refresh-apply-button"
+        type="button"
+      >
+        Guardar nueva PQ same-brand
+      </button>
+      <small>
+        Esta acción modifica el pricing del PNR en Sabre. Conserva la misma
+        brand y NO emite ticket.
+      </small>
+    `;
+
+    $("applyFareRefreshButton")?.addEventListener("click", applyFareRefresh);
+  }
+
+  function renderFareRefresh() {
+    const panel = $("fareRefreshPanel");
+    if (!panel) return;
+
+    const visible = (
+      needsFareRefresh() ||
+      fareRefreshLoading ||
+      Boolean(fareRefresh)
+    );
+    show("fareRefreshPanel", visible);
+    if (!visible) return;
+
+    if (fareRefreshLoading) {
+      show("fareRefreshAction", false);
+      text("fareRefreshTitle", "Tarifa expirada");
+      text("fareRefreshBadge", "Recotizando…");
+      $("fareRefreshBody").innerHTML = `
+        <div class="data-item">
+          <strong>Buscando la misma branded fare</strong>
+          <small>
+            Se consulta Sabre sin modificar el PNR ni guardar un nuevo PQ.
+          </small>
+        </div>
+      `;
+      return;
+    }
+
+    if (!fareRefresh) {
+      show("fareRefreshAction", false);
+      text("fareRefreshTitle", "Tarifa expirada");
+      text("fareRefreshBadge", "Pendiente");
+      $("fareRefreshBody").innerHTML = `
+        <div class="data-item">
+          <strong>La tarifa almacenada requiere actualización.</strong>
+          <small>
+            La recotización se hará sobre el itinerario exacto y la misma brand.
+          </small>
+        </div>
+      `;
+      return;
+    }
+
+    if (fareRefresh.status === "found") {
+      text("fareRefreshTitle", "Nueva tarifa encontrada");
+      text("fareRefreshBadge", "MISMA BRAND");
+
+      const oldFare = money(
+        fareRefresh.source_total,
+        fareRefresh.source_currency
+      );
+      const newFare = money(
+        fareRefresh.candidate_total,
+        fareRefresh.candidate_currency
+      );
+      const difference = Number(fareRefresh.price_difference);
+      const differenceText = Number.isFinite(difference)
+        ? `${difference >= 0 ? "+" : ""}${money(
+            difference,
+            fareRefresh.candidate_currency
+          )}`
+        : "—";
+
+      $("fareRefreshBody").innerHTML = `
+        <div class="data-item">
+          <strong>${esc(oldFare)} → ${esc(newFare)}</strong>
+          <small>Diferencia: ${esc(differenceText)}</small>
+        </div>
+        <div class="data-item">
+          <strong>
+            ${esc(
+              fareRefresh.candidate_brand_name ||
+              fareRefresh.candidate_brand_code ||
+              "Branded fare"
+            )}
+          </strong>
+          <small>
+            Brand ${esc(fareRefresh.candidate_brand_code || "—")}
+            · Fare basis ${esc(
+              (fareRefresh.candidate_fare_basis_codes || []).join(" / ") || "—"
+            )}
+          </small>
+        </div>
+        ${
+          fareRefresh.candidate_last_ticket_date
+            ? `
+              <div class="data-item">
+                <strong>
+                  Fecha informativa BFM:
+                  ${esc(fareRefresh.candidate_last_ticket_date)}
+                </strong>
+                <small>
+                  No se usa como deadline operativo hasta guardar y releer un PQ.
+                </small>
+              </div>
+            `
+            : ""
+        }
+        <div class="data-item">
+          <strong>El PNR no fue modificado.</strong>
+          <small>
+            La nueva tarifa todavía no está almacenada como PQ y no habilita emisión.
+          </small>
+        </div>
+      `;
+      renderFareRefreshAction();
+      return;
+    }
+
+    show("fareRefreshAction", false);
+    if (fareRefresh.status === "same_brand_unavailable") {
+      text("fareRefreshTitle", "Tarifa original no disponible");
+      text("fareRefreshBadge", "SIN MISMA BRAND");
+    } else if (
+      fareRefresh.status === "exact_itinerary_unavailable"
+    ) {
+      text("fareRefreshTitle", "Itinerario no disponible");
+      text("fareRefreshBadge", "REVISAR");
+    } else if (fareRefresh.status === "blocked") {
+      text("fareRefreshTitle", "Recotización bloqueada");
+      text("fareRefreshBadge", "REVISAR");
+    } else {
+      text("fareRefreshTitle", "No se pudo recotizar");
+      text("fareRefreshBadge", "ERROR");
+    }
+
+    const reasons = fareRefresh.trigger_reasons || [];
+    const blockers = fareRefresh.blockers || [];
+    $("fareRefreshBody").innerHTML = `
+      <div class="data-item">
+        <strong>${esc(
+          fareRefresh.message ||
+          "No se obtuvo una nueva tarifa de la misma brand."
+        )}</strong>
+        ${
+          reasons.length
+            ? `<small>${reasons
+                .map(fareRefreshReasonLabel)
+                .map(esc)
+                .join(" · ")}</small>`
+            : ""
+        }
+      </div>
+      ${
+        blockers.length
+          ? `
+            <div class="data-item">
+              <strong>Bloqueos</strong>
+              <small>${blockers.map(esc).join(" · ")}</small>
+            </div>
+          `
+          : ""
+      }
+    `;
+  }
+
+  async function autoRefreshFareIfNeeded() {
+    if (
+      fareRefreshAttempted ||
+      fareRefreshLoading ||
+      !needsFareRefresh()
+    ) {
+      renderFareRefresh();
+      return;
+    }
+
+    fareRefreshAttempted = true;
+    fareRefreshLoading = true;
+    renderFareRefresh();
+
+    try {
+      fareRefresh = await fetchJson(
+        `/bookings/${encodeURIComponent(bookingId)}/pnr-fare-refresh`
+      );
+    } catch (error) {
+      fareRefresh = {
+        status: "error",
+        message: error.message || String(error),
+        blockers: [],
+        trigger_reasons: [],
+      };
+    } finally {
+      fareRefreshLoading = false;
+      renderFareRefresh();
+      renderNextAction();
+    }
   }
 
   function assessmentCard(check) {
@@ -420,7 +867,7 @@
   function nextActionDescription(code) {
     return {
       issue_ticket:
-        "Los controles bloqueantes están correctos. La emisión sigue siendo una acción operativa separada.",
+        "Los controles bloqueantes están correctos y existe un ticket candidate inequívoco. La emisión permanece deshabilitada.",
       store_or_verify_pricing:
         "El PNR no tiene una tarifa almacenada verificable. Primero hay que guardar o revisar el pricing.",
       review_itinerary:
@@ -431,6 +878,8 @@
         "El PNR no conserva contacto suficiente para continuar con seguridad.",
       review_pricing:
         "Existe pricing almacenado, pero alguno de sus datos no coincide con el Booking congelado.",
+      reprice_required:
+        "Sabre marca el PQ ACTIVE con ITIN CHG. Se requiere repricing antes de continuar.",
     }[code] || "Revisá los controles de la reserva antes de continuar.";
   }
 
@@ -446,10 +895,58 @@
     }
 
     const next = workspace?.next_action;
-    text("nextActionTitle", next?.label || "Revisar reserva");
+
+    if (next?.code === "reprice_required" && fareRefreshLoading) {
+      text("nextActionTitle", "Tarifa expirada · recotizando");
+      text(
+        "nextActionDescription",
+        "Buscando en Sabre el itinerario exacto y la misma branded fare. El PNR no se modifica."
+      );
+      show("nextActionReason", false);
+      return;
+    }
+
+    if (
+      next?.code === "reprice_required" &&
+      fareRefresh?.status === "found"
+    ) {
+      text("nextActionTitle", "Tarifa expirada · nueva tarifa encontrada");
+      text(
+        "nextActionDescription",
+        `${money(
+          fareRefresh.source_total,
+          fareRefresh.source_currency
+        )} → ${money(
+          fareRefresh.candidate_total,
+          fareRefresh.candidate_currency
+        )}. Misma branded fare ${fareRefresh.candidate_brand_code || "confirmada"}. Falta guardar un nuevo PQ antes de emisión.`
+      );
+      show("nextActionReason", false);
+      return;
+    }
+
+    const finalGateBlocked = (
+      next?.code === "issue_ticket" &&
+      workspace?.final_pre_issue_gate?.status === "blocked"
+    );
+    text(
+      "nextActionTitle",
+      finalGateBlocked
+        ? "Revisión de ticketing requerida"
+        : (
+            next?.code === "issue_ticket"
+              ? "Lista para revisión pre-emisión"
+              : (next?.label || "Revisar reserva")
+          )
+    );
     text(
       "nextActionDescription",
-      nextActionDescription(next?.code)
+      finalGateBlocked
+        ? (
+            workspace?.final_pre_issue_gate?.message ||
+            "Los controles finales de ticketing requieren revisión."
+          )
+        : nextActionDescription(next?.code)
     );
 
     const blocking = (workspace?.assessment?.checks || []).filter(
@@ -479,11 +976,20 @@
       : "Sin advisory detectado";
 
     text("ticketingAdvisory", advisory || "—");
+    const purchaseDeadline = workspace?.purchase_deadline || null;
     text(
       "ticketingDeadline",
-      ticketing.deadline_at || "No detectado"
+      purchaseDeadline?.operational_deadline_at ||
+        purchaseDeadline?.purchase_deadline_at ||
+        ticketing.deadline_at ||
+        "No resuelto"
     );
-    text("ticketingType", ticketing.ticket_type || "No informado");
+    text(
+      "ticketingType",
+      ticketing.arrangement_raw ||
+        ticketing.ticket_type ||
+        "No informado"
+    );
 
     const services = workspace?.snapshot?.special_services || [];
     const visibleServices = Array.from(
@@ -526,6 +1032,260 @@
       : `<div class="empty-note">No hay SSR adicionales relevantes.</div>`;
   }
 
+
+  function combinedCheckStatus(codes) {
+    const checks = codes.map(checkByCode).filter(Boolean);
+    if (checks.length !== codes.length) return "unknown";
+    if (checks.some(check => check.status === "fail")) return "fail";
+    if (checks.every(check => check.status === "pass")) return "pass";
+    return "unknown";
+  }
+
+  function preIssueItem(label, status, detail) {
+    const symbol = status === "pass" ? "✓" : status === "fail" ? "!" : "·";
+    return `
+      <article class="pre-issue-check ${esc(status)}">
+        <span class="pre-issue-check-icon" aria-hidden="true">
+          ${esc(symbol)}
+        </span>
+        <div>
+          <strong>${esc(label)}</strong>
+          <small>${esc(detail)}</small>
+        </div>
+      </article>
+    `;
+  }
+
+  function candidatePassengerName(candidatePassenger, index) {
+    const nameNumber = String(candidatePassenger?.name_number || "");
+    const passenger = (workspace?.snapshot?.passengers || []).find(
+      item => String(item.name_number || "") === nameNumber
+    );
+    return passenger
+      ? passengerName(passenger, index)
+      : `Passenger ${nameNumber || index + 1}`;
+  }
+
+  function renderPreIssueReview() {
+    const readiness = workspace?.pre_issue_readiness || null;
+    const candidate = workspace?.ticket_candidate || null;
+    const constraint = workspace?.ticketing_constraint || null;
+    const purchaseDeadline = workspace?.purchase_deadline || null;
+    const finalGate = workspace?.final_pre_issue_gate || null;
+
+    const ready = finalGate?.status === "ready";
+
+    const badge = $("preIssueBadge");
+    if (badge) {
+      badge.classList.remove("ready", "attention", "error", "loading");
+      badge.classList.add(ready ? "ready" : "attention");
+      badge.textContent = ready
+        ? "READY FOR PRE-ISSUE"
+        : "BLOCKED";
+    }
+
+    text(
+      "preIssueSummary",
+      ready
+        ? (
+            finalGate?.message ||
+            "Todos los gates read-only están completos."
+          )
+        : (
+            finalGate?.message ||
+            readiness?.message ||
+            "El PNR todavía no cumple todos los gates finales."
+          )
+    );
+
+    const freshStatus = (
+      readiness?.fresh_remote_read === true &&
+      workspace?.stale !== true &&
+      workspace?.status !== "read_error"
+    ) ? "pass" : "fail";
+
+    const finalBlockers = finalGate?.blockers || [];
+    const deadlineStatus = ready
+      ? "pass"
+      : (
+          finalBlockers.some(item => [
+            "PURCHASE_DEADLINE_EXPIRED",
+            "PURCHASE_DEADLINE_MISSING",
+            "PURCHASE_DEADLINE_TIME_MISSING",
+            "PURCHASE_DEADLINE_YEAR_UNRESOLVED",
+            "PURCHASE_DEADLINE_FORMAT_UNSUPPORTED",
+            "PURCHASE_DEADLINE_UNRESOLVED",
+            "ACTIVE_PQ_UNAVAILABLE",
+            "TICKETING_DEADLINE_UNRESOLVED",
+            "TICKETING_DEADLINE_EXPIRED",
+            "TICKETING_DEADLINE_TIMEZONE_UNKNOWN",
+            "TICKETING_CONSTRAINT_UNAVAILABLE",
+          ].includes(item))
+            ? "fail"
+            : "unknown"
+        );
+
+    let deadlineDetail = "Restricción de ticketing no disponible.";
+    if (purchaseDeadline?.status === "expired") {
+      deadlineDetail = purchaseDeadline?.purchase_deadline_at
+        ? `LAST DAY TO PURCHASE vencido: ${purchaseDeadline.purchase_deadline_at}`
+        : "El LAST DAY TO PURCHASE del PQ ACTIVE ya venció.";
+    } else if (purchaseDeadline?.status === "resolved") {
+      const source = purchaseDeadline?.raw_values?.join(" · ") || "PQ ACTIVE";
+      const operational = purchaseDeadline?.operational_deadline_at || "—";
+      deadlineDetail = purchaseDeadline?.policy_capped
+        ? `${source}. Time limit operativo: ${operational} (cap mañana 12:00 Buenos Aires).`
+        : `${source}. Time limit operativo: ${operational}.`;
+    } else if (purchaseDeadline?.status === "unresolved") {
+      deadlineDetail = (
+        purchaseDeadline?.message ||
+        "No se pudo resolver LAST DAY TO PURCHASE en todos los PQ ACTIVE."
+      );
+    } else if (constraint?.status === "structured_deadline") {
+      deadlineDetail = constraint?.deadline_at
+        ? `Deadline estructurado: ${constraint.deadline_at}`
+        : "Deadline estructurado sin valor utilizable.";
+    } else if (constraint?.status === "advisory_without_deadline") {
+      const advisory = [
+        constraint?.advisory_airline_code,
+        constraint?.advisory_code,
+        constraint?.advisory_status,
+      ].filter(Boolean).join(":");
+      deadlineDetail = `${advisory || "ADTK"} sin deadline estructurado; requiere verificación.`;
+    } else if (constraint?.status === "no_structured_constraint") {
+      deadlineDetail = "No hay deadline estructurado; esto no equivale a ausencia de vencimiento.";
+    } else if (constraint?.status === "unverified_deadline") {
+      deadlineDetail = "El deadline recibido no puede interpretarse con seguridad.";
+    }
+
+    const checks = [
+      [
+        "Lectura Sabre actual",
+        freshStatus,
+        freshStatus === "pass"
+          ? `Verificada ${fmtRetrievedAt(readiness?.retrieved_at || workspace?.retrieved_at)}`
+          : "Se requiere una nueva lectura remota exitosa.",
+      ],
+      [
+        "Itinerario confirmado",
+        combinedCheckStatus(["SEGMENTS_MATCH", "SEGMENTS_CONFIRMED"]),
+        "Segmentos exactos contra el Booking y estado HK.",
+      ],
+      [
+        "PQ vigente para itinerario",
+        checkByCode("PRICING_ITINERARY_CURRENT")?.status || "unknown",
+        checkByCode("PRICING_ITINERARY_CURRENT")?.status === "pass"
+          ? "El PQ ACTIVE no está marcado con ITIN CHG."
+          : "ITIN CHG o estado no verificable: se requiere repricing.",
+      ],
+      [
+        "Pasajeros y pricing",
+        combinedCheckStatus([
+          "PASSENGER_COUNT_MATCH",
+          "PASSENGER_TYPES_MATCH",
+          "PRICING_PASSENGER_COVERAGE",
+        ]),
+        "Todos los pasajeros deben quedar cubiertos exactamente una vez.",
+      ],
+      [
+        "PQ ACTIVE",
+        checkByCode("ACTIVE_PRICING_SELECTED")?.status || "unknown",
+        "Sólo pricing con status Sabre ACTIVE entra al candidato.",
+      ],
+      [
+        "Tarifa y carrier",
+        combinedCheckStatus([
+          "CURRENCY_MATCH",
+          "PRICE_MATCH",
+          "VALIDATING_CARRIER_MATCH",
+        ]),
+        "Moneda, total y validating carrier contra el Booking congelado.",
+      ],
+      [
+        "Ticketing deadline",
+        deadlineStatus,
+        deadlineDetail,
+      ],
+      [
+        "Ticket Candidate",
+        (
+          candidate?.status === "ready" &&
+          checkByCode("TICKET_CANDIDATE_READY")?.status === "pass"
+        ) ? "pass" : (
+          candidate?.status === "blocked" ? "fail" : "unknown"
+        ),
+        candidate?.status === "ready"
+          ? "Conjunto de PQ y pasajeros inequívoco."
+          : "No hay un ticket candidate inequívoco.",
+      ],
+    ];
+
+    $("preIssueChecks").innerHTML = checks
+      .map(([label, status, detail]) => preIssueItem(label, status, detail))
+      .join("");
+
+    text(
+      "ticketCandidateBadge",
+      candidate?.status === "ready" ? "READY" : "BLOCKED"
+    );
+    text("candidateLocator", candidate?.confirmation_id || "—");
+    text(
+      "candidatePqRecords",
+      (candidate?.price_quote_record_numbers || []).length
+        ? candidate.price_quote_record_numbers.join(", ")
+        : "—"
+    );
+    text("candidateCarrier", candidate?.validating_carrier || "—");
+    text(
+      "candidateTotal",
+      candidate?.total_amount != null
+        ? money(candidate.total_amount, candidate.currency)
+        : "—"
+    );
+
+    const candidatePassengers = candidate?.passengers || [];
+    $("ticketCandidatePassengers").innerHTML = candidatePassengers.length
+      ? candidatePassengers.map((passenger, index) => `
+          <div class="pre-issue-passenger">
+            <div>
+              <strong>${esc(candidatePassengerName(passenger, index))}</strong>
+              <small>
+                ${esc(passenger.name_number || "—")}
+                · ${esc(passenger.passenger_type || "—")}
+              </small>
+            </div>
+            <span class="meta-chip">
+              PQ ${esc(passenger.price_quote_record_number || "—")}
+            </span>
+          </div>
+        `).join("")
+      : `<div class="empty-note">No hay pasajeros en el ticket candidate.</div>`;
+
+    const blockers = Array.from(new Set([
+      ...(finalGate?.blockers || []),
+      ...(readiness?.blockers || []),
+      ...(candidate?.blockers || []),
+    ]));
+    if (blockers.length) {
+      $("preIssueBlockers").innerHTML = `
+        <strong>Bloqueos detectados</strong>
+        <ul>
+          ${blockers.map(item => `<li>${esc(item)}</li>`).join("")}
+        </ul>
+      `;
+      show("preIssueBlockers", true);
+    } else {
+      $("preIssueBlockers").innerHTML = "";
+      show("preIssueBlockers", false);
+    }
+
+    const issueButton = $("issueTicketButton");
+    if (issueButton) {
+      issueButton.disabled = true;
+      issueButton.setAttribute("aria-disabled", "true");
+    }
+  }
+
   function renderTechnical() {
     text("technicalBookingId", workspace?.booking_id || bookingId);
     text("technicalLocator", workspace?.confirmation_id || "—");
@@ -566,9 +1326,11 @@
     renderSegments();
     renderPassengersAndContacts();
     renderPricing();
+    renderFareRefresh();
     renderChecks();
     renderNextAction();
     renderTicketing();
+    renderPreIssueReview();
     renderTechnical();
   }
 
@@ -592,6 +1354,109 @@
       );
     }
     return data;
+  }
+
+  async function postJson(url, body) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      cache: "no-store",
+      body: JSON.stringify(body),
+    });
+
+    let data = null;
+    try {
+      data = await response.json();
+    } catch {
+      data = null;
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        data?.detail || `No se pudo actualizar el pricing (HTTP ${response.status}).`
+      );
+    }
+    return data;
+  }
+
+  function newFareRefreshClientRequestId() {
+    if (globalThis.crypto?.randomUUID) {
+      return globalThis.crypto.randomUUID();
+    }
+    return `pricing-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  async function applyFareRefresh() {
+    if (
+      fareRefreshApplying ||
+      fareRefresh?.status !== "found"
+    ) {
+      return;
+    }
+
+    const oldFare = money(
+      fareRefresh.source_total,
+      fareRefresh.source_currency
+    );
+    const newFare = money(
+      fareRefresh.candidate_total,
+      fareRefresh.candidate_currency
+    );
+    const brand = (
+      fareRefresh.candidate_brand_code ||
+      fareRefresh.source_brand_code ||
+      "misma brand"
+    );
+
+    const confirmed = window.confirm(
+      `Guardar una nueva PQ ${brand}: ${oldFare} → ${newFare}? ` +
+      "Esto modifica el pricing del PNR en Sabre pero NO emite ticket."
+    );
+    if (!confirmed) return;
+
+    fareRefreshClientRequestId ||= newFareRefreshClientRequestId();
+    fareRefreshApplying = true;
+    fareRefreshApplyResult = null;
+    renderFareRefresh();
+
+    let shouldSync = false;
+    try {
+      fareRefreshApplyResult = await postJson(
+        `/bookings/${encodeURIComponent(bookingId)}/pnr-fare-refresh/apply`,
+        {
+          confirm_same_brand_refresh: true,
+          client_request_id: fareRefreshClientRequestId,
+          expected_brand_code: fareRefresh.candidate_brand_code,
+          expected_currency: fareRefresh.candidate_currency,
+          expected_total: fareRefresh.candidate_total,
+        }
+      );
+
+      shouldSync = (
+        fareRefreshApplyResult.status === "updated" ||
+        fareRefreshApplyResult.status === "not_required"
+      );
+    } catch (error) {
+      fareRefreshApplyResult = {
+        status: "error",
+        message: error.message || String(error),
+        blockers: [],
+        sabre_mutation_performed: false,
+      };
+    } finally {
+      fareRefreshApplying = false;
+    }
+
+    if (shouldSync) {
+      await syncWorkspace();
+      return;
+    }
+
+    renderFareRefresh();
+    renderNextAction();
   }
 
   async function loadBooking() {
@@ -622,9 +1487,14 @@
       workspace = await fetchJson(
         `/bookings/${encodeURIComponent(bookingId)}/pnr-workspace`
       );
+      fareRefresh = null;
+      fareRefreshAttempted = false;
+      fareRefreshApplyResult = null;
+      fareRefreshClientRequestId = null;
       renderWorkspace();
       show("workspaceLoading", false);
       show("pnrWorkspace", true);
+      await autoRefreshFareIfNeeded();
     } catch (error) {
       $("workspaceError").textContent = error.message || String(error);
       show("workspaceError", true);

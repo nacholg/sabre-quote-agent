@@ -17,8 +17,29 @@ from app.models.pnr_workspace import (
     PnrCheckStatus,
     PnrNextAction,
     PnrNextActionCode,
+    PnrPricingAuthority,
+    PnrPricingCoverage,
+    PnrPricingCoverageStatus,
+    PnrPricingSelection,
+    PnrPricingSelectionStatus,
+    PnrSecureFlightDocsCoverage,
+    PnrSecureFlightDocsStatus,
     PnrSnapshot,
+    PnrTicketCandidate,
+    PnrTicketCandidateStatus,
     PnrWorkspaceStatus,
+)
+from app.services.pnr_pricing_authority_service import (
+    PnrPricingAuthorityResolution,
+    resolve_pnr_pricing_authority,
+)
+from app.services.pnr_pricing_coverage_service import assess_pnr_pricing_coverage
+from app.services.pnr_pricing_selection_service import select_pnr_pricing
+from app.services.pnr_secure_flight_docs_service import (
+    assess_pnr_secure_flight_docs,
+)
+from app.services.pnr_ticket_candidate_service import (
+    build_pnr_ticket_candidate,
 )
 
 
@@ -109,16 +130,51 @@ class PnrAssessmentService:
         passengers: BookingPassengersResponse,
         contact: BookingContactRecord,
         snapshot: PnrSnapshot,
+        pricing_authority: PnrPricingAuthority | None = None,
     ) -> PnrAssessmentResult:
         revision = booking.accepted_offer_revision
         if revision is None:
             raise ValueError("Booking sin oferta aceptada para assessment.")
 
+        pricing_selection = select_pnr_pricing(snapshot)
+        pricing_coverage = assess_pnr_pricing_coverage(snapshot, pricing_selection)
+        authority_resolution = resolve_pnr_pricing_authority(
+            booking_id=booking.booking_id,
+            confirmation_id=snapshot.confirmation_id,
+            fare=revision.snapshot.fare,
+            selection=pricing_selection,
+            authority=pricing_authority,
+        )
+        secure_flight_docs = assess_pnr_secure_flight_docs(snapshot)
+        ticket_candidate = build_pnr_ticket_candidate(
+            snapshot=snapshot,
+            fare=revision.snapshot.fare,
+            selection=pricing_selection,
+            coverage=pricing_coverage,
+            expected_total_override=authority_resolution.expected_total,
+            expected_currency_override=authority_resolution.expected_currency,
+            expected_validating_carrier_override=(
+                authority_resolution.expected_validating_carrier
+            ),
+        )
         checks = [
             *self._segment_checks(revision.snapshot.segments, snapshot),
             *self._passenger_checks(passengers, snapshot),
+            *self._secure_flight_docs_checks(secure_flight_docs),
             *self._contact_checks(contact, snapshot),
-            *self._pricing_checks(revision.snapshot.fare, snapshot),
+            *self._pricing_authority_checks(authority_resolution),
+            *self._pricing_checks(
+                revision.snapshot.fare,
+                snapshot,
+                pricing_selection,
+                pricing_coverage,
+                ticket_candidate,
+                expected_total=authority_resolution.expected_total,
+                expected_currency=authority_resolution.expected_currency,
+                expected_carrier=(
+                    authority_resolution.expected_validating_carrier
+                ),
+            ),
             *self._ticketing_checks(snapshot),
         ]
         blocking = [
@@ -148,6 +204,12 @@ class PnrAssessmentService:
         return PnrAssessmentResult(
             assessment=assessment,
             next_action=self._next_action(checks),
+            pricing_selection=pricing_selection,
+            pricing_coverage=pricing_coverage,
+            ticket_candidate=ticket_candidate,
+            pricing_authority=pricing_authority,
+            pricing_authority_current=authority_resolution.current,
+            secure_flight_docs=secure_flight_docs,
         )
 
     @staticmethod
@@ -284,6 +346,32 @@ class PnrAssessmentService:
         ]
 
     @staticmethod
+    def _secure_flight_docs_checks(
+        coverage: PnrSecureFlightDocsCoverage,
+    ):
+        if coverage.status == PnrSecureFlightDocsStatus.COMPLETE:
+            status = PnrCheckStatus.PASS
+        elif coverage.status == PnrSecureFlightDocsStatus.MISSING:
+            status = PnrCheckStatus.FAIL
+        else:
+            status = PnrCheckStatus.UNKNOWN
+
+        return [
+            _check(
+                "SECURE_FLIGHT_DOCS_PRESENT",
+                "DOCS / Secure Flight",
+                status,
+                blocking=True,
+                expected="DOCS HK asociado a cada pasajero",
+                actual=(
+                    f"{len(coverage.covered_name_numbers)}/"
+                    f"{coverage.passenger_count} cubiertos"
+                ),
+                message=coverage.message,
+            )
+        ]
+
+    @staticmethod
     def _contact_checks(
         contact: BookingContactRecord,
         snapshot: PnrSnapshot,
@@ -365,19 +453,98 @@ class PnrAssessmentService:
         ]
 
     @staticmethod
-    def _pricing_checks(fare, snapshot: PnrSnapshot):
+    def _pricing_authority_checks(
+        resolution: PnrPricingAuthorityResolution,
+    ):
+        if resolution.authority is None:
+            return []
+        if resolution.current:
+            delta = resolution.authority.price_difference
+            direction = (
+                "incremento"
+                if delta > 0
+                else "disminución"
+                if delta < 0
+                else "sin cambio"
+            )
+            return [
+                _check(
+                    "PRICING_AUTHORITY_CURRENT",
+                    "Autoridad tarifaria vigente",
+                    PnrCheckStatus.PASS,
+                    blocking=True,
+                    expected="PQ refrescado verificado",
+                    actual=",".join(
+                        resolution.authority.price_quote_record_numbers
+                    ),
+                    message=(
+                        f"Tarifa refrescada vigente: "
+                        f"{resolution.authority.currency} "
+                        f"{resolution.authority.current_total}; "
+                        f"{direction} {delta}."
+                    ),
+                )
+            ]
+        return [
+            _check(
+                "PRICING_AUTHORITY_CURRENT",
+                "Autoridad tarifaria vigente",
+                PnrCheckStatus.FAIL,
+                blocking=True,
+                expected="autoridad coincide con PQ actual",
+                actual=",".join(resolution.blockers) or "-",
+                message=(
+                    "La autoridad tarifaria persistida ya no coincide "
+                    "inequívocamente con el pricing actual de Sabre."
+                ),
+            )
+        ]
+
+    @staticmethod
+    def _pricing_checks(
+        fare,
+        snapshot: PnrSnapshot,
+        selection: PnrPricingSelection,
+        coverage: PnrPricingCoverage,
+        ticket_candidate: PnrTicketCandidate,
+        *,
+        expected_total: Decimal | None,
+        expected_currency: str | None,
+        expected_carrier: str | None,
+    ):
         quotes = snapshot.price_quotes
         present = bool(quotes)
-        expected_currency = _upper(fare.currency)
+        candidates = selection.candidates
+        selected = (
+            selection.status == PnrPricingSelectionStatus.SELECTED
+            and bool(candidates)
+        )
+
+        if not present:
+            candidate_status = PnrCheckStatus.UNKNOWN
+            candidate_blocking = False
+        elif selected:
+            candidate_status = PnrCheckStatus.PASS
+            candidate_blocking = True
+        else:
+            candidate_status = PnrCheckStatus.FAIL
+            candidate_blocking = True
+
+        expected_currency = _upper(expected_currency)
+        currency_values = [
+            _upper(item.total_currency)
+            for item in candidates
+        ]
         currencies = {
             value
-            for value in (
-                _upper(item.total_currency)
-                for item in quotes
-            )
+            for value in currency_values
             if value
         }
-        if not present or not currencies:
+        if (
+            not selected
+            or expected_currency is None
+            or any(value is None for value in currency_values)
+        ):
             currency_status = PnrCheckStatus.UNKNOWN
         else:
             currency_status = (
@@ -386,41 +553,40 @@ class PnrAssessmentService:
                 else PnrCheckStatus.FAIL
             )
 
-        totals = [
-            item.total_amount
-            for item in quotes
-            if item.total_amount is not None
-        ]
+        totals = [item.total_amount for item in candidates]
         total: Decimal | None = None
         if (
-            not present
-            or fare.total_price is None
-            or len(totals) != len(quotes)
+            not selected
+            or expected_total is None
+            or any(value is None for value in totals)
         ):
             price_status = PnrCheckStatus.UNKNOWN
         else:
-            total = sum(totals, Decimal("0"))
+            total = sum(
+                (value for value in totals if value is not None),
+                Decimal("0"),
+            )
             price_status = (
                 PnrCheckStatus.PASS
-                if total == fare.total_price
+                if total == expected_total
                 else PnrCheckStatus.FAIL
             )
 
-        expected_carrier = _upper(fare.validating_carrier)
-        carriers = {
-            value
-            for value in (
-                _upper(item.validating_carrier)
-                for item in quotes
-            )
-            if value
-        }
+        expected_carrier = _upper(expected_carrier)
+        carrier_values = [
+            _upper(item.validating_carrier)
+            for item in candidates
+        ]
+        carriers = {value for value in carrier_values if value}
         if expected_carrier is None:
             carrier_status = PnrCheckStatus.UNKNOWN
             carrier_blocking = False
-        elif not present or not carriers:
+        elif not selected:
             carrier_status = PnrCheckStatus.UNKNOWN
-            carrier_blocking = present
+            carrier_blocking = False
+        elif any(value is None for value in carrier_values):
+            carrier_status = PnrCheckStatus.UNKNOWN
+            carrier_blocking = True
         else:
             carrier_status = (
                 PnrCheckStatus.PASS
@@ -429,29 +595,106 @@ class PnrAssessmentService:
             )
             carrier_blocking = True
 
+        if selected:
+            active_actual = (
+                f"{selection.candidate_quote_count} ACTIVE / "
+                f"{selection.total_quote_count} total"
+            )
+        elif present:
+            active_actual = (
+                f"0 ACTIVE / {selection.total_quote_count} total"
+            )
+        else:
+            active_actual = "sin PQ"
+
+        itinerary_changed_values = [
+            quote.itinerary_changed
+            for quote in candidates
+        ]
+        if not selected:
+            itinerary_current_status = PnrCheckStatus.UNKNOWN
+            itinerary_current_blocking = False
+            itinerary_current_actual = "-"
+            itinerary_current_message = (
+                "No hay PQ ACTIVE seleccionado para verificar ITIN CHG."
+            )
+        elif any(
+            value is True
+            for value in itinerary_changed_values
+        ):
+            itinerary_current_status = PnrCheckStatus.FAIL
+            itinerary_current_blocking = True
+            itinerary_current_actual = "ITIN CHG"
+            itinerary_current_message = (
+                "Sabre marca el PQ ACTIVE como afectado por un cambio "
+                "de itinerario. Se requiere repricing."
+            )
+        elif any(
+            value is None
+            for value in itinerary_changed_values
+        ):
+            itinerary_current_status = PnrCheckStatus.UNKNOWN
+            itinerary_current_blocking = True
+            itinerary_current_actual = "no verificable"
+            itinerary_current_message = (
+                "Sabre no devolvió ItineraryChanged para todos los PQ ACTIVE."
+            )
+        else:
+            itinerary_current_status = PnrCheckStatus.PASS
+            itinerary_current_blocking = True
+            itinerary_current_actual = "sin ITIN CHG"
+            itinerary_current_message = None
+
         brand = _upper(fare.brand_code) or fare.brand_name
         return [
             _check(
                 "PRICING_PRESENT",
                 "Tarifa almacenada",
-                (
-                    PnrCheckStatus.PASS
-                    if present
-                    else PnrCheckStatus.FAIL
-                ),
+                PnrCheckStatus.PASS if present else PnrCheckStatus.FAIL,
                 blocking=True,
                 expected="PQ presente",
-                actual=(
-                    f"{len(quotes)} PQ"
-                    if present
-                    else "sin PQ"
+                actual=f"{len(quotes)} PQ" if present else "sin PQ",
+            ),
+            _check(
+                "ACTIVE_PRICING_SELECTED",
+                "Pricing activo identificado",
+                candidate_status,
+                blocking=candidate_blocking,
+                expected="PQ status ACTIVE",
+                actual=active_actual,
+                message=selection.message,
+            ),
+            _check(
+                "PRICING_ITINERARY_CURRENT",
+                "Pricing corresponde al itinerario actual",
+                itinerary_current_status,
+                blocking=itinerary_current_blocking,
+                expected="sin ITIN CHG",
+                actual=itinerary_current_actual,
+                message=itinerary_current_message,
+            ),
+            _check(
+                "PRICING_PASSENGER_COVERAGE",
+                "Cobertura de pasajeros por pricing",
+                (
+                    PnrCheckStatus.PASS
+                    if coverage.status == PnrPricingCoverageStatus.EXACT
+                    else (
+                        PnrCheckStatus.UNKNOWN
+                        if coverage.status == PnrPricingCoverageStatus.UNKNOWN
+                        else PnrCheckStatus.FAIL
+                    )
                 ),
+                blocking=(selection.status == PnrPricingSelectionStatus.SELECTED),
+                expected="cada pasajero cubierto exactamente 1 vez",
+                actual=(f"{coverage.covered_passenger_count}/{coverage.passenger_count} cubiertos"),
+                message=coverage.message,
             ),
             _check(
                 "CURRENCY_MATCH",
                 "Moneda coincide",
                 currency_status,
-                blocking=present,
+                blocking=selected,
                 expected=expected_currency or "-",
                 actual=",".join(sorted(currencies)) or "-",
             ),
@@ -459,12 +702,8 @@ class PnrAssessmentService:
                 "PRICE_MATCH",
                 "Total coincide",
                 price_status,
-                blocking=present,
-                expected=(
-                    str(fare.total_price)
-                    if fare.total_price is not None
-                    else "-"
-                ),
+                blocking=selected,
+                expected=(str(expected_total) if expected_total is not None else "-"),
                 actual=str(total) if total is not None else "-",
             ),
             _check(
@@ -474,6 +713,31 @@ class PnrAssessmentService:
                 blocking=carrier_blocking,
                 expected=expected_carrier or "-",
                 actual=",".join(sorted(carriers)) or "-",
+            ),
+            _check(
+                "TICKET_CANDIDATE_READY",
+                "Ticket candidate inequívoco",
+                (
+                    PnrCheckStatus.PASS
+                    if ticket_candidate.status
+                    == PnrTicketCandidateStatus.READY
+                    else (
+                        PnrCheckStatus.FAIL
+                        if (
+                            selected
+                            and coverage.status
+                            == PnrPricingCoverageStatus.EXACT
+                        )
+                        else PnrCheckStatus.UNKNOWN
+                    )
+                ),
+                blocking=(
+                    selected
+                    and coverage.status == PnrPricingCoverageStatus.EXACT
+                ),
+                expected="ready",
+                actual=ticket_candidate.status.value,
+                message=ticket_candidate.message,
             ),
             _check(
                 "BRAND_MATCH",
@@ -552,7 +816,9 @@ class PnrAssessmentService:
         by_code = {item.code: item for item in checks}
 
         def unresolved(code: str) -> bool:
-            item = by_code[code]
+            item = by_code.get(code)
+            if item is None:
+                return False
             return (
                 item.blocking
                 and item.status in _UNRESOLVED
@@ -574,6 +840,11 @@ class PnrAssessmentService:
                 PnrNextActionCode.REVIEW_PASSENGERS,
                 "Revisar pasajeros en Sabre.",
             )
+        elif unresolved("SECURE_FLIGHT_DOCS_PRESENT"):
+            code, label = (
+                PnrNextActionCode.REVIEW_PASSENGERS,
+                "Completar/verificar DOCS / Secure Flight.",
+            )
         elif unresolved("CONTACT_PRESENT"):
             code, label = (
                 PnrNextActionCode.REVIEW_CONTACT,
@@ -583,6 +854,26 @@ class PnrAssessmentService:
             code, label = (
                 PnrNextActionCode.STORE_OR_VERIFY_PRICING,
                 "Guardar/verificar tarifa en Sabre.",
+            )
+        elif unresolved("ACTIVE_PRICING_SELECTED"):
+            code, label = (
+                PnrNextActionCode.REVIEW_PRICING,
+                "Revisar cuál pricing ACTIVE corresponde emitir.",
+            )
+        elif unresolved("PRICING_ITINERARY_CURRENT"):
+            code, label = (
+                PnrNextActionCode.REPRICE_REQUIRED,
+                "Repricing requerido: el PQ no corresponde al itinerario actual.",
+            )
+        elif unresolved("PRICING_PASSENGER_COVERAGE"):
+            code, label = (
+                PnrNextActionCode.REVIEW_PRICING,
+                "Revisar cobertura de pasajeros por las PQ ACTIVE.",
+            )
+        elif unresolved("PRICING_AUTHORITY_CURRENT"):
+            code, label = (
+                PnrNextActionCode.REVIEW_PRICING,
+                "Revalidar la autoridad tarifaria contra el PQ actual.",
             )
         elif any(
             unresolved(name)
@@ -595,6 +886,11 @@ class PnrAssessmentService:
             code, label = (
                 PnrNextActionCode.REVIEW_PRICING,
                 "Revisar pricing almacenado.",
+            )
+        elif unresolved("TICKET_CANDIDATE_READY"):
+            code, label = (
+                PnrNextActionCode.REVIEW_PRICING,
+                "Revisar datos necesarios para el ticket candidate.",
             )
         else:
             code, label = (
