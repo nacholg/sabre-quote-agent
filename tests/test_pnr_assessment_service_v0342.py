@@ -31,6 +31,15 @@ from app.models.pnr_workspace import (
 )
 from app.models.quote_request import PassengerKind, PassengerSpec
 from app.services.pnr_assessment_service import PnrAssessmentService
+from app.services.pnr_final_pre_issue_gate_service import (
+    build_pnr_final_pre_issue_gate,
+)
+from app.services.pnr_pre_issue_readiness_service import (
+    build_pnr_pre_issue_readiness,
+)
+from app.services.pnr_ticketing_constraint_service import (
+    interpret_pnr_ticketing_constraint,
+)
 
 
 def _booking() -> BookingRecord:
@@ -269,6 +278,51 @@ def test_non_hk_segment_requires_itinerary_review() -> None:
 
     assert _check(result, "SEGMENTS_CONFIRMED").status == PnrCheckStatus.FAIL
     assert result.next_action.code == PnrNextActionCode.REVIEW_ITINERARY
+
+
+def test_hx_segment_hard_blocks_pre_issue_even_with_ready_ticket_candidate() -> None:
+    snapshot = _snapshot(
+        segment_status="HX",
+        advisory=True,
+    )
+    result = _result(snapshot)
+
+    assert result.assessment.status == PnrWorkspaceStatus.NEEDS_ATTENTION
+    assert _check(result, "SEGMENTS_MATCH").status == PnrCheckStatus.PASS
+    assert _check(result, "SEGMENTS_CONFIRMED").status == PnrCheckStatus.FAIL
+    assert _check(result, "SEGMENTS_CONFIRMED").blocking is True
+    assert _check(result, "TICKET_CANDIDATE_READY").status == PnrCheckStatus.PASS
+    assert result.ticket_candidate.status.value == "ready"
+    assert result.next_action.code == PnrNextActionCode.REVIEW_ITINERARY
+
+    readiness = build_pnr_pre_issue_readiness(
+        confirmation_id=snapshot.confirmation_id,
+        retrieved_at="2026-09-04T13:18:48+00:00",
+        stale=False,
+        workspace_status=result.assessment.status,
+        read_error_code=None,
+        assessment=result.assessment,
+        ticket_candidate=result.ticket_candidate,
+    )
+
+    assert readiness.status.value == "blocked"
+    assert readiness.fresh_remote_read is True
+    assert readiness.blockers == ["WORKSPACE_NOT_READY"]
+
+    constraint = interpret_pnr_ticketing_constraint(snapshot.ticketing)
+    assert constraint.status.value == "advisory_without_deadline"
+
+    final_gate = build_pnr_final_pre_issue_gate(
+        confirmation_id=snapshot.confirmation_id,
+        pre_issue_readiness=readiness,
+        ticketing_constraint=constraint,
+    )
+
+    assert final_gate.status.value == "blocked"
+    assert final_gate.blockers == [
+        "PRE_ISSUE_NOT_READY",
+        "TICKETING_DEADLINE_UNRESOLVED",
+    ]
 
 
 def test_price_mismatch_requires_pricing_review() -> None:
