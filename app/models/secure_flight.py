@@ -100,3 +100,26 @@ class SecureFlightWriteReadiness(BaseModel):
     document: SecureFlightDocumentSummary
     docs: PnrSecureFlightDocsCoverage | None = None
     blockers: list[str] = Field(default_factory=list)
+
+
+class SecureFlightCertWriteStatus(StrEnum):
+    SUCCEEDED = "succeeded"
+    NOT_REQUIRED = "not_required"
+    BLOCKED = "blocked"
+    RECONCILIATION_REQUIRED = "reconciliation_required"
+
+
+class SecureFlightCertWriteResult(BaseModel):
+    """Redacted result of one controlled CERT Secure Flight write attempt."""
+
+    status: SecureFlightCertWriteStatus
+    booking_id: str
+    confirmation_id: str | None = None
+    target_name_number: str | None = None
+    write_submitted: bool = False
+    application_status: str | None = None
+    session_close_ok: bool | None = None
+    document: SecureFlightDocumentSummary
+    docs: PnrSecureFlightDocsCoverage | None = None
+    blockers: list[str] = Field(default_factory=list)
+    message: str | None = None
