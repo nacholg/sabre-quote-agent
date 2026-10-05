@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from datetime import date
+from enum import StrEnum
 from typing import Literal
+
+from app.models.pnr_workspace import PnrSecureFlightDocsCoverage
 
 from pydantic import (
     BaseModel,
@@ -78,3 +81,22 @@ class SecureFlightDocumentInput(BaseModel):
             expiry_date=self.expiry_date,
             document_number_present=bool(self.document_number_value()),
         )
+
+
+class SecureFlightWriteReadinessStatus(StrEnum):
+    READY = "ready"
+    NOT_REQUIRED = "not_required"
+    BLOCKED = "blocked"
+
+
+class SecureFlightWriteReadiness(BaseModel):
+    """Redacted, read-only decision for a future DOCS mutation."""
+
+    status: SecureFlightWriteReadinessStatus
+    booking_id: str
+    confirmation_id: str | None = None
+    target_name_number: str | None = None
+    fresh_remote_read: bool = False
+    document: SecureFlightDocumentSummary
+    docs: PnrSecureFlightDocsCoverage | None = None
+    blockers: list[str] = Field(default_factory=list)
